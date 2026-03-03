@@ -105,10 +105,16 @@ class ObsidianConfig(BaseModel):
     trading_folder: str = "Trading"
 
 
+class FxConfig(BaseModel):
+    currencies: list[str] = Field(default_factory=lambda: ["USD", "EUR", "RUB", "KZT"])
+    base_currency: str = "USD"
+
+
 class Config(BaseModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
+    fx: FxConfig = Field(default_factory=FxConfig)
 
     @property
     def db_path(self) -> Path:

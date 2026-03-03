@@ -14,8 +14,10 @@ from trading_tracker.config import load_config
 app = typer.Typer(name="trade", help="Personal trading journal CLI.")
 db_app = typer.Typer(name="db", help="Database management commands.")
 sync_app = typer.Typer(name="sync", help="Obsidian sync commands.")
+fx_app = typer.Typer(name="fx", help="Currency exchange rates.")
 app.add_typer(db_app)
 app.add_typer(sync_app)
+app.add_typer(fx_app)
 
 console = Console()
 
@@ -464,6 +466,96 @@ def sync_export():
     conn = db.init_db(cfg.db_path)
     count = sync.export_to_obsidian(conn, cfg)
     console.print(f"[green]Exported {count} files to Obsidian vault.[/green]")
+
+
+# ── fx commands ──────────────────────────────────────────────────────────────
+
+DEFAULT_CURRENCIES = ["USD", "EUR", "RUB", "KZT"]
+
+
+@fx_app.command("rate")
+def fx_rate(
+    base: str,
+    quote: str,
+    amount: Annotated[Optional[float], typer.Option("--amount", "-a")] = None,
+):
+    """Get exchange rate for a currency pair (e.g. trade fx rate USD KZT)."""
+    with console.status(f"Fetching {base.upper()}/{quote.upper()}..."):
+        rate = analytics.fetch_fx_rate(base, quote)
+
+    if rate is None:
+        console.print(f"[red]Could not fetch rate for {base.upper()}/{quote.upper()}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"  [cyan]{base.upper()}/{quote.upper()}[/cyan] = [bold]{rate:.4f}[/bold]")
+    if amount is not None:
+        converted = round(amount * rate, 2)
+        console.print(f"  {amount:.2f} {base.upper()} = [bold]{converted:.2f} {quote.upper()}[/bold]")
+
+
+@fx_app.command("matrix")
+def fx_matrix(
+    currencies: Annotated[
+        Optional[str], typer.Argument(help="Comma-separated currencies (default: USD,EUR,RUB,KZT)")
+    ] = None,
+):
+    """Show cross-rate matrix for multiple currencies."""
+    if currencies:
+        ccy_list = [c.strip().upper() for c in currencies.split(",")]
+    else:
+        cfg = load_config()
+        ccy_list = cfg.fx.currencies if cfg.fx.currencies else DEFAULT_CURRENCIES
+
+    if len(ccy_list) < 2:
+        console.print("[red]Need at least 2 currencies.[/red]")
+        raise typer.Exit(1)
+
+    with console.status(f"Fetching rates for {', '.join(ccy_list)}..."):
+        rates = analytics.fetch_fx_matrix(ccy_list)
+
+    table = Table(title="FX Cross Rates")
+    table.add_column("", style="cyan bold")
+    for c in ccy_list:
+        table.add_column(c, justify="right")
+
+    for base in ccy_list:
+        row = [base]
+        for quote in ccy_list:
+            rate = rates.get((base, quote))
+            if rate is None:
+                row.append("-")
+            elif base == quote:
+                row.append("[dim]1[/dim]")
+            elif rate >= 100:
+                row.append(f"{rate:.2f}")
+            elif rate >= 1:
+                row.append(f"{rate:.4f}")
+            else:
+                row.append(f"{rate:.6f}")
+        table.add_row(*row)
+    console.print(table)
+
+
+@fx_app.command("convert")
+def fx_convert(
+    amount: float,
+    from_currency: str,
+    to_currency: str,
+):
+    """Convert an amount between currencies (e.g. trade fx convert 1000 USD KZT)."""
+    with console.status(f"Converting {from_currency.upper()} → {to_currency.upper()}..."):
+        rate = analytics.fetch_fx_rate(from_currency, to_currency)
+
+    if rate is None:
+        console.print(f"[red]Could not fetch rate for {from_currency.upper()}/{to_currency.upper()}[/red]")
+        raise typer.Exit(1)
+
+    result = round(amount * rate, 2)
+    console.print(
+        f"  {amount:,.2f} {from_currency.upper()} = "
+        f"[bold]{result:,.2f} {to_currency.upper()}[/bold]"
+        f"  [dim](rate: {rate:.4f})[/dim]"
+    )
 
 
 if __name__ == "__main__":

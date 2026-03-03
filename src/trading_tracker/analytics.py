@@ -162,11 +162,112 @@ def enrich_positions_with_prices(
     return positions
 
 
-# TODO: Phase 3 — multi-currency support
-# def convert_to_base_currency(amount, from_currency, to_currency="USD"):
-#     if from_currency == to_currency:
-#         return amount
-#     raise NotImplementedError("Multi-currency not yet supported")
+def _extract_close(data, symbol: str | None = None) -> float | None:
+    """Extract last close price from yfinance DataFrame, handling MultiIndex columns."""
+    if data.empty:
+        return None
+    close = data["Close"]
+    # yfinance may return MultiIndex columns with ticker as second level
+    if hasattr(close, "columns"):
+        # It's a DataFrame — pick the right column
+        if symbol and symbol in close.columns:
+            close = close[symbol]
+        else:
+            close = close.iloc[:, 0]
+    series = close.dropna()
+    if series.empty:
+        return None
+    return float(series.iloc[-1])
+
+
+def fetch_fx_rate(base: str, quote: str) -> float | None:
+    """Fetch a single FX rate (e.g. base=USD, quote=KZT → USDKZT=X)."""
+    base, quote = base.upper(), quote.upper()
+    if base == quote:
+        return 1.0
+    import logging
+    import yfinance as yf
+
+    symbol = f"{base}{quote}=X"
+    try:
+        logging.disable(logging.CRITICAL)
+        data = yf.download(symbol, period="5d", progress=False)
+        logging.disable(logging.NOTSET)
+        val = _extract_close(data, symbol)
+        return round(val, 6) if val is not None else None
+    except Exception:
+        logging.disable(logging.NOTSET)
+        return None
+
+
+def fetch_fx_matrix(currencies: list[str]) -> dict[tuple[str, str], float | None]:
+    """Fetch cross-rate matrix for a list of currencies.
+
+    Returns dict of (base, quote) → rate for all pairs.
+    Batches downloads for efficiency.
+    """
+    currencies = [c.upper() for c in currencies]
+    pairs: list[tuple[str, str]] = []
+    symbols: list[str] = []
+    for base in currencies:
+        for quote in currencies:
+            if base != quote:
+                pairs.append((base, quote))
+                symbols.append(f"{base}{quote}=X")
+
+    if not symbols:
+        return {}
+
+    import yfinance as yf
+
+    result: dict[tuple[str, str], float | None] = {}
+    # Set identity
+    for c in currencies:
+        result[(c, c)] = 1.0
+
+    try:
+        import logging
+        logging.disable(logging.CRITICAL)
+        data = yf.download(symbols, period="5d", progress=False, threads=True)
+        logging.disable(logging.NOTSET)
+        if data.empty:
+            for p in pairs:
+                result[p] = None
+            return result
+
+        close = data["Close"]
+        if len(symbols) == 1:
+            val = _extract_close(data, symbols[0])
+            result[pairs[0]] = round(val, 6) if val is not None else None
+        else:
+            for pair, sym in zip(pairs, symbols):
+                if sym in close.columns:
+                    col = close[sym].dropna()
+                    result[pair] = round(float(col.iloc[-1]), 6) if not col.empty else None
+                else:
+                    result[pair] = None
+    except Exception:
+        logging.disable(logging.NOTSET)
+        for p in pairs:
+            result[p] = None
+
+    return result
+
+
+def convert_amount(
+    amount: float, from_currency: str, to_currency: str, rates: dict[tuple[str, str], float | None] | None = None,
+) -> float | None:
+    """Convert amount between currencies using provided or fetched rates."""
+    from_currency, to_currency = from_currency.upper(), to_currency.upper()
+    if from_currency == to_currency:
+        return amount
+    if rates:
+        rate = rates.get((from_currency, to_currency))
+    else:
+        rate = fetch_fx_rate(from_currency, to_currency)
+    if rate is None:
+        return None
+    return round(amount * rate, 2)
 
 
 def strategy_breakdown(closed_trades: list[dict[str, Any]]) -> list[dict[str, Any]]:

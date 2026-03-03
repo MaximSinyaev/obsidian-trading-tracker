@@ -82,6 +82,10 @@ source = "manual"                      # manual, broker-import, api
 [obsidian]
 vault_path = "/path/to/your/vault"     # Obsidian vault root
 trading_folder = "Trading"             # subfolder inside vault
+
+[fx]
+currencies = ["USD", "EUR", "RUB", "KZT"]  # for `trade fx matrix`
+base_currency = "USD"
 ```
 
 The tool searches for config in this order:
@@ -314,6 +318,55 @@ strategy: "dividend-capture"
 ```
 
 **Requires** `vault_path` set in `.traderc.toml`.
+
+### `trade fx` — Currency exchange rates
+
+Three subcommands for working with FX rates (powered by Yahoo Finance, free, no API key):
+
+#### `trade fx rate` — Single pair
+
+```bash
+trade fx rate USD KZT
+#  USD/KZT = 499.7300
+
+trade fx rate EUR USD --amount 1000
+#  EUR/USD = 1.1616
+#  1000.00 EUR = 1161.60 USD
+```
+
+#### `trade fx convert` — Quick conversion
+
+```bash
+trade fx convert 1000 USD KZT
+#  1,000.00 USD = 499,730.01 KZT  (rate: 499.7300)
+```
+
+#### `trade fx matrix` — Cross-rate table
+
+```bash
+trade fx matrix                    # uses currencies from config
+trade fx matrix "USD,EUR,GBP,JPY"  # custom list
+```
+
+```
+                 FX Cross Rates
+┏━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
+┃     ┃      USD ┃      EUR ┃     RUB ┃    KZT ┃
+┡━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━┩
+│ USD │        1 │ 0.860900 │ 77.6860 │ 499.73 │
+│ EUR │   1.1616 │        1 │ 90.1490 │ 580.32 │
+│ RUB │ 0.012872 │ 0.011041 │       1 │      - │
+│ KZT │ 0.002001 │ 0.001718 │       - │      1 │
+└─────┴──────────┴──────────┴─────────┴────────┘
+```
+
+Default currencies are configured in `.traderc.toml`:
+
+```toml
+[fx]
+currencies = ["USD", "EUR", "RUB", "KZT"]
+base_currency = "USD"
+```
 
 ## P&L Calculation
 
