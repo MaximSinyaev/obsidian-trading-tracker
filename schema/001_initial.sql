@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS closed_trades (
     exit_trade_ids TEXT NOT NULL DEFAULT '[]',
     shares REAL NOT NULL CHECK (shares > 0),
     avg_entry_price REAL NOT NULL,
-    avg_exit_price REAL NOT NULL,
+    avg_exit_price REAL NOT NULL CHECK (avg_exit_price >= 0),
     entry_avg_cost REAL NOT NULL,
     total_commission REAL NOT NULL DEFAULT 0,
     gross_pnl REAL NOT NULL,
@@ -63,15 +63,14 @@ BEGIN
     UPDATE trades SET updated_at = datetime('now') WHERE id = OLD.id;
 END;
 
--- View: open positions (net shares per ticker)
+-- View: open positions (long only in v1)
 CREATE VIEW IF NOT EXISTS positions AS
 SELECT
     ticker,
     SUM(CASE WHEN action = 'BUY' THEN shares ELSE -shares END) AS net_shares,
     SUM(CASE WHEN action = 'BUY' THEN shares * price ELSE 0 END) /
         NULLIF(SUM(CASE WHEN action = 'BUY' THEN shares ELSE 0 END), 0) AS avg_cost,
-    SUM(CASE WHEN action = 'BUY' THEN commission ELSE 0 END) +
-        SUM(CASE WHEN action = 'SELL' THEN commission ELSE 0 END) AS total_commission,
+    SUM(commission) AS total_commission,
     MIN(timestamp) AS first_trade,
     MAX(timestamp) AS last_trade,
     COUNT(*) AS trade_count

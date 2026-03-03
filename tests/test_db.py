@@ -10,12 +10,12 @@ from trading_tracker import db
 
 @pytest.fixture
 def conn():
-    """In-memory SQLite database with schema applied."""
+    """In-memory SQLite database with all migrations applied."""
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
-    schema = db.SCHEMA_DIR / "001_initial.sql"
-    connection.executescript(schema.read_text())
+    for migration in sorted(db.SCHEMA_DIR.glob("*.sql")):
+        connection.executescript(migration.read_text())
     yield connection
     connection.close()
 
@@ -64,9 +64,35 @@ class TestAddTrade:
         with pytest.raises(sqlite3.IntegrityError):
             db.add_trade(conn, "FRO", "BUY", -1, 10.0)
 
-    def test_zero_price_rejected(self, conn):
+    def test_zero_price_allowed(self, conn):
+        """Price=0 is allowed for option expiration."""
+        tid = db.add_trade(conn, "AAPL240119C190", "sell", 1, 0)
+        trade = db.get_trade(conn, tid)
+        assert trade["price"] == 0
+
+    def test_negative_price_rejected(self, conn):
         with pytest.raises(sqlite3.IntegrityError):
-            db.add_trade(conn, "FRO", "BUY", 1, 0)
+            db.add_trade(conn, "FRO", "BUY", 1, -1)
+
+    def test_custom_timestamp(self, conn):
+        tid = db.add_trade(conn, "FRO", "buy", 3, 39.55, timestamp="2025-01-15T10:30:00")
+        trade = db.get_trade(conn, tid)
+        assert trade["timestamp"] == "2025-01-15T10:30:00"
+
+    def test_instrument_and_leverage(self, conn):
+        tid = db.add_trade(
+            conn, "AAPL", "buy", 10, 150.0,
+            instrument="option", leverage=5.0,
+        )
+        trade = db.get_trade(conn, tid)
+        assert trade["instrument"] == "option"
+        assert trade["leverage"] == 5.0
+
+    def test_default_instrument_and_leverage(self, conn):
+        tid = db.add_trade(conn, "FRO", "buy", 1, 10.0)
+        trade = db.get_trade(conn, tid)
+        assert trade["instrument"] == "stock"
+        assert trade["leverage"] == 1.0
 
 
 class TestEditTrade:
@@ -177,6 +203,77 @@ class TestClosePosition:
         assert len(closed) == 1
         assert closed[0]["what_worked"] == "Good timing"
         assert closed[0]["lesson"] == "Trust the plan"
+
+
+class TestShortPositions:
+    def test_short_position_shows_negative_shares(self, conn):
+        """SELL first creates a short position with negative net_shares."""
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        pos = db.get_position(conn, "TSLA")
+        assert pos is not None
+        assert pos["net_shares"] == -5
+        assert pos["avg_cost"] == 200.0
+
+    def test_close_short_position(self, conn):
+        """Close short: SELL to open, BUY to close. P&L = entry - exit."""
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        result = db.close_position(conn, "TSLA", 5, 180.0)
+        assert result["direction"] == "short"
+        assert result["avg_entry"] == 200.0
+        assert result["exit_price"] == 180.0
+        # Short profit: (200 - 180) * 5 = 100
+        assert result["gross_pnl"] == 100.0
+        assert result["net_pnl"] == 100.0
+        assert result["remaining_shares"] == 0
+
+    def test_close_short_creates_buy_trade(self, conn):
+        """Closing a short creates a BUY trade (cover)."""
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        db.close_position(conn, "TSLA", 5, 180.0)
+        history = db.get_history(conn)
+        buys = [t for t in history if t["action"] == "BUY"]
+        assert len(buys) == 1
+        assert buys[0]["ticker"] == "TSLA"
+        assert buys[0]["shares"] == 5
+
+    def test_short_loss(self, conn):
+        """Short loses money when price goes up."""
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        result = db.close_position(conn, "TSLA", 5, 220.0)
+        # Short loss: (200 - 220) * 5 = -100
+        assert result["gross_pnl"] == -100.0
+        assert result["net_pnl"] == -100.0
+
+    def test_partial_close_short(self, conn):
+        db.add_trade(conn, "TSLA", "sell", 10, 200.0)
+        result = db.close_position(conn, "TSLA", 4, 190.0)
+        assert result["remaining_shares"] == 6
+        # Profit: (200 - 190) * 4 = 40
+        assert result["gross_pnl"] == 40.0
+        pos = db.get_position(conn, "TSLA")
+        assert pos is not None
+        assert pos["net_shares"] == -6
+
+    def test_close_short_with_commission(self, conn):
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0, commission=5)
+        result = db.close_position(conn, "TSLA", 5, 180.0, commission=5)
+        assert result["gross_pnl"] == 100.0
+        assert result["net_pnl"] == 95.0  # 100 - 5 (exit commission only)
+
+    def test_short_closed_trade_record(self, conn):
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        db.close_position(conn, "TSLA", 5, 180.0, what_worked="Good short")
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 1
+        assert closed[0]["direction"] == "short"
+        assert closed[0]["what_worked"] == "Good short"
+
+    def test_option_expiry_at_zero(self, conn):
+        """Option expires worthless — close at price=0."""
+        db.add_trade(conn, "AAPL240119C190", "buy", 1, 5.0)
+        result = db.close_position(conn, "AAPL240119C190", 1, 0)
+        assert result["exit_price"] == 0
+        assert result["gross_pnl"] == -5.0  # Lost full premium
 
 
 class TestDeleteTrade:

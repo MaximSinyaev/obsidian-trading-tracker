@@ -120,6 +120,9 @@ trade add <TICKER> <ACTION> <SHARES> <PRICE> [OPTIONS]
 | `--tags` | `-t` | Comma-separated tags |
 | `--source` | | Data source (`manual`, `broker-import`) |
 | `--group` | | Position group name |
+| `--date` / `--timestamp` | | Custom timestamp for historical imports (ISO format) |
+| `--instrument` | `-i` | Instrument type (`stock`, `option`, `future`, `crypto`) |
+| `--leverage` | | Leverage multiplier (default: 1.0) |
 
 **Examples:**
 
@@ -135,6 +138,15 @@ trade add FRO buy 3 39.55 \
   --confidence 4 \
   --tags "shipping,value" \
   --notes "Earnings next week, expecting dividend announcement"
+
+# Short position (sell to open)
+trade add TSLA sell 5 200.00 --strategy mean-reversion
+
+# Historical import with custom date
+trade add FRO buy 3 39.55 --date "2025-01-15T10:30:00"
+
+# Option with leverage
+trade add AAPL240119C190 buy 1 5.00 --instrument option --leverage 10
 ```
 
 ### `trade edit` — Fix a trade
@@ -197,11 +209,17 @@ Supports **partial closes** — close fewer shares than held.
 **Examples:**
 
 ```bash
-# Full close
+# Full close (long)
 trade close FRO 3 43.00 --commission 10 --what-worked "Timed the dividend"
 
 # Partial close (sell 2 of 5 shares)
 trade close FRO 2 43.00 --commission 10
+
+# Close a short position (buy to cover)
+trade close TSLA 5 180.00 --what-worked "Good short timing"
+
+# Option expiry at zero (worthless)
+trade close AAPL240119C190 1 0
 
 # With review notes
 trade close AAPL 10 165.00 \
@@ -370,24 +388,34 @@ base_currency = "USD"
 
 ## P&L Calculation
 
-Uses the **Average Cost** method with commissions tracked separately:
+Uses the **Average Cost** method with commissions tracked separately.
+
+**Long position** (BUY to open → SELL to close):
 
 ```
 Position: 5 FRO @ avg $39.50
 Close: 2 shares @ $43.00, commission $10
 
-  Cost basis:    2 x $39.50  = $79.00
-  Sale proceeds: 2 x $43.00  = $86.00
-  Gross P&L:     $86 - $79   = $7.00
-  Net P&L:       $7 - $10    = -$3.00 (commission > profit)
-
+  Gross P&L: 2 × ($43.00 - $39.50) = $7.00
+  Net P&L:   $7.00 - $10.00 = -$3.00 (commission > profit)
   Remaining: 3 FRO @ $39.50 (avg cost unchanged)
+```
+
+**Short position** (SELL to open → BUY to close):
+
+```
+Position: -5 TSLA @ avg $200.00  (short)
+Close: 5 shares @ $180.00
+
+  Gross P&L: 5 × ($200.00 - $180.00) = $100.00
+  Net P&L:   $100.00 (profit — price went down)
 ```
 
 Key rules:
 - Commission is **not** baked into avg cost — tracked separately for transparency
 - Partial close does **not** change the remaining position's avg cost
-- Each close creates both a SELL trade and a `closed_trades` record with full audit trail
+- Each close creates both a trade (SELL for long, BUY for short) and a `closed_trades` record
+- Direction is auto-detected from net position: positive = long, negative = short
 
 ## Project Structure
 
@@ -396,7 +424,8 @@ obsidian-trading-tracker/
 ├── pyproject.toml              # dependencies, entry point
 ├── .traderc.toml               # config example
 ├── schema/
-│   └── 001_initial.sql         # SQLite schema + views + triggers
+│   ├── 001_initial.sql         # SQLite schema + views + triggers
+│   └── 002_shorts_leverage.sql # Migration: shorts, leverage, instrument, price>=0
 ├── src/trading_tracker/
 │   ├── cli.py                  # Typer CLI commands
 │   ├── db.py                   # SQLite CRUD, migrations
@@ -407,7 +436,7 @@ obsidian-trading-tracker/
 │   └── templates/              # Jinja2 templates
 │       ├── daily_log.md.j2
 │       └── position_note.md.j2
-└── tests/                      # 56 tests
+└── tests/                      # 83 tests
     ├── test_db.py
     ├── test_cli.py
     └── test_analytics.py
@@ -477,10 +506,9 @@ sqlite3 trades.db "SELECT * FROM daily_pnl"
 ## Roadmap
 
 - [ ] Broker CSV import (Interactive Brokers, Tradovate)
-- [ ] Live price quotes via yfinance (unrealized P&L in `positions`)
-- [ ] Multi-currency support with exchange rate conversion
 - [ ] `trade undo` — reverse last action
 - [ ] Obsidian Dataview query examples in export templates
+- [ ] Analytics filtering by instrument type and leverage
 
 ## License
 

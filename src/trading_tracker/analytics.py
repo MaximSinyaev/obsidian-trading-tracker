@@ -149,11 +149,18 @@ def enrich_positions_with_prices(
         price = prices.get(pos["ticker"])
         pos["current_price"] = price
         if price is not None:
-            cost_basis = pos["net_shares"] * pos["avg_cost"]
-            market_value = pos["net_shares"] * price
-            pos["unrealized_pnl"] = round(market_value - cost_basis, 2)
+            net = pos["net_shares"]
+            is_long = net > 0
+            abs_shares = abs(net)
+            if is_long:
+                # Long: profit when price goes up
+                pnl = abs_shares * (price - pos["avg_cost"])
+            else:
+                # Short: profit when price goes down
+                pnl = abs_shares * (pos["avg_cost"] - price)
+            pos["unrealized_pnl"] = round(pnl, 2)
             pos["unrealized_pnl_pct"] = (
-                round((price - pos["avg_cost"]) / pos["avg_cost"] * 100, 2)
+                round(pnl / (abs_shares * pos["avg_cost"]) * 100, 2)
                 if pos["avg_cost"] else 0.0
             )
         else:

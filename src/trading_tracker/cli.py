@@ -70,6 +70,9 @@ def add(
     tags: Annotated[Optional[str], typer.Option("--tags", "-t")] = None,
     source: Annotated[Optional[str], typer.Option("--source")] = None,
     group: Annotated[Optional[str], typer.Option("--group")] = None,
+    timestamp: Annotated[Optional[str], typer.Option("--date", "--timestamp")] = None,
+    instrument: Annotated[Optional[str], typer.Option("--instrument", "-i")] = None,
+    leverage: Annotated[float, typer.Option("--leverage")] = 1.0,
 ):
     """Add a new trade (BUY or SELL)."""
     cfg = load_config()
@@ -83,6 +86,7 @@ def add(
         shares,
         price,
         commission=commission or cfg.defaults.commission,
+        timestamp=timestamp,
         strategy=strategy,
         stop_loss=sl,
         target_1=tp1,
@@ -93,6 +97,8 @@ def add(
         source=source or cfg.defaults.source,
         position_group=group,
         asset_type=cfg.defaults.asset_type,
+        instrument=instrument or cfg.defaults.asset_type,
+        leverage=leverage,
     )
     console.print(
         f"[green]Trade #{trade_id}: {action.upper()} {shares} {ticker.upper()} @ ${price:.2f}[/green]"
@@ -248,9 +254,11 @@ def close(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
+    direction = result.get("direction", "long")
+    dir_label = "SHORT" if direction == "short" else "LONG"
     color = "green" if result["net_pnl"] >= 0 else "red"
     console.print(
-        f"[{color}]Closed {result['shares']} {result['ticker']} | "
+        f"[{color}]Closed {dir_label} {result['shares']} {result['ticker']} | "
         f"Entry: ${result['avg_entry']:.2f} → Exit: ${result['exit_price']:.2f} | "
         f"P&L: ${result['net_pnl']:.2f} ({result['pnl_percent']:.1f}%)[/{color}]"
     )
@@ -281,6 +289,7 @@ def positions(
 
     table = Table(title="Open Positions")
     table.add_column("Ticker", style="cyan bold")
+    table.add_column("Dir")
     table.add_column("Shares", justify="right")
     table.add_column("Avg Cost", justify="right")
     table.add_column("Cost Basis", justify="right")
@@ -297,18 +306,23 @@ def positions(
     total_pnl = 0.0
 
     for p in pos:
-        cost_basis = p["net_shares"] * p["avg_cost"]
+        net = p["net_shares"]
+        is_long = net > 0
+        abs_shares = abs(net)
+        cost_basis = abs_shares * p["avg_cost"]
         total_cost += cost_basis
+        dir_label = "[green]LONG[/green]" if is_long else "[red]SHORT[/red]"
         row = [
             p["ticker"],
-            f"{p['net_shares']:.2f}",
+            dir_label,
+            f"{abs_shares:.2f}",
             f"${p['avg_cost']:.2f}",
             f"${cost_basis:.2f}",
         ]
         if has_prices:
             price = p.get("current_price")
             if price is not None:
-                mkt_val = p["net_shares"] * price
+                mkt_val = abs_shares * price
                 pnl = p["unrealized_pnl"]
                 pnl_pct = p["unrealized_pnl_pct"]
                 total_value += mkt_val

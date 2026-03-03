@@ -140,6 +140,71 @@ class TestDelete:
         assert result.exit_code == 1
 
 
+class TestAddTimestamp:
+    def test_add_with_timestamp(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, [
+            "add", "FRO", "buy", "3", "39.55",
+            "--date", "2025-01-15T10:30:00",
+        ])
+        assert result.exit_code == 0
+        # Verify the trade was stored with the right timestamp
+        result = runner.invoke(app, ["show", "1"])
+        assert "2025-01-15" in result.output
+
+    def test_add_with_instrument(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, [
+            "add", "AAPL", "buy", "1", "5.0",
+            "--instrument", "option",
+        ])
+        assert result.exit_code == 0
+        result = runner.invoke(app, ["show", "1"])
+        assert "option" in result.output
+
+    def test_add_with_leverage(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, [
+            "add", "EURUSD", "buy", "1000", "1.08",
+            "--leverage", "10",
+        ])
+        assert result.exit_code == 0
+        result = runner.invoke(app, ["show", "1"])
+        assert "10" in result.output
+
+
+class TestShortCli:
+    def test_short_position_display(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "TSLA", "sell", "5", "200"])
+        result = runner.invoke(app, ["positions", "--no-live"])
+        assert result.exit_code == 0
+        assert "TSLA" in result.output
+        assert "SHORT" in result.output
+
+    def test_close_short_via_cli(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "TSLA", "sell", "5", "200"])
+        result = runner.invoke(app, ["close", "TSLA", "5", "180"])
+        assert result.exit_code == 0
+        assert "SHORT" in result.output
+        assert "Closed" in result.output
+
+    def test_close_long_shows_long_label(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        result = runner.invoke(app, ["close", "FRO", "3", "43"])
+        assert result.exit_code == 0
+        assert "LONG" in result.output
+
+    def test_option_expiry_at_zero(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "AAPL240119C190", "buy", "1", "5.0"])
+        result = runner.invoke(app, ["close", "AAPL240119C190", "1", "0"])
+        assert result.exit_code == 0
+        assert "Closed" in result.output
+
+
 class TestPositionsNoLive:
     def test_positions_no_live(self, tmp_config):
         runner.invoke(app, ["db", "init"])

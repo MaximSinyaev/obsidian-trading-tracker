@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-04
+
+### Added
+- **Short positions** — SELL to open, BUY to close, with correct P&L (entry - exit)
+- **Leverage** field — `trade add ... --leverage 5` for margined positions
+- **Instrument type** — `trade add ... --instrument option` for filtering and analytics
+- **Historical imports** — `trade add ... --date 2025-01-15T10:30:00` for backfilling trades
+- **Price=0 support** — record option expiration or worthless exits
+- Short position direction shown in `positions` (LONG/SHORT labels) and `close` output
+- 19 new tests (83 total): shorts lifecycle, price=0 expiry, leverage, instrument, --date flag
+- Database migration `002_shorts_leverage.sql` for existing databases
+
+### Changed
+- Positions view now shows both long and short positions (`HAVING net_shares != 0`)
+- `close_position` auto-detects direction and creates appropriate trade (SELL for long, BUY for short)
+- Avg cost for shorts calculated from SELL (entry) trades
+
 ## [0.3.0] - 2026-03-04
 
 ### Added

@@ -19,7 +19,7 @@ class Trade(BaseModel):
     ticker: str
     action: Action
     shares: float = Field(gt=0)
-    price: float = Field(gt=0)
+    price: float = Field(ge=0)
     commission: float = Field(default=0, ge=0)
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     strategy: str | None = None
@@ -35,7 +35,9 @@ class Trade(BaseModel):
     notes: str | None = None
     position_group: str | None = None
     asset_type: str = "stock"
+    instrument: str = "stock"
     currency: str = "USD"
+    leverage: float = Field(default=1.0, ge=1.0)
 
     @field_validator("ticker")
     @classmethod
@@ -51,6 +53,7 @@ class Trade(BaseModel):
 class ClosedTrade(BaseModel):
     id: int | None = None
     ticker: str
+    direction: str = "long"
     entry_trade_ids: list[int] = Field(default_factory=list)
     exit_trade_ids: list[int] = Field(default_factory=list)
     shares: float = Field(gt=0)
