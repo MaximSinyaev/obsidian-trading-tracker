@@ -158,6 +158,64 @@ def edit(
 
 
 @app.command()
+def show(trade_id: int):
+    """Show full details of a single trade."""
+    conn = _get_conn()
+    trade = db.get_trade(conn, trade_id)
+    if not trade:
+        console.print(f"[red]Trade #{trade_id} not found.[/red]")
+        raise typer.Exit(1)
+
+    import json as _json
+
+    table = Table(title=f"Trade #{trade_id}", show_header=False)
+    table.add_column("Field", style="cyan")
+    table.add_column("Value")
+
+    skip = {"created_at", "updated_at"}
+    for key, value in dict(trade).items():
+        if key in skip:
+            continue
+        if key == "tags":
+            try:
+                value = ", ".join(_json.loads(value)) or "-"
+            except (TypeError, _json.JSONDecodeError):
+                pass
+        display = str(value) if value is not None else "-"
+        table.add_row(key, display)
+
+    table.add_row("created_at", trade["created_at"])
+    table.add_row("updated_at", trade["updated_at"])
+    console.print(table)
+
+
+@app.command()
+def delete(
+    trade_id: int,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+):
+    """Delete a trade by ID."""
+    conn = _get_conn()
+    trade = db.get_trade(conn, trade_id)
+    if not trade:
+        console.print(f"[red]Trade #{trade_id} not found.[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"  Trade #{trade_id}: {trade['action']} {trade['shares']} {trade['ticker']} "
+        f"@ ${trade['price']:.2f} ({trade['timestamp'][:10]})"
+    )
+    if not yes:
+        confirm = typer.confirm("Delete this trade?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            raise typer.Exit(0)
+
+    db.delete_trade(conn, trade_id)
+    console.print(f"[green]Trade #{trade_id} deleted.[/green]")
+
+
+@app.command()
 def close(
     ticker: str,
     shares: float,
@@ -201,33 +259,79 @@ def close(
 
 
 @app.command()
-def positions():
-    """Show all open positions."""
+def positions(
+    no_live: Annotated[bool, typer.Option("--no-live", help="Skip live price fetching")] = False,
+):
+    """Show all open positions with live prices."""
     conn = _get_conn()
     pos = db.get_positions(conn)
     if not pos:
         console.print("[yellow]No open positions.[/yellow]")
         return
 
+    if not no_live:
+        with console.status("Fetching live prices..."):
+            pos = analytics.enrich_positions_with_prices(pos, live=True)
+    else:
+        pos = analytics.enrich_positions_with_prices(pos, live=False)
+
+    has_prices = any(p.get("current_price") is not None for p in pos)
+
     table = Table(title="Open Positions")
     table.add_column("Ticker", style="cyan bold")
     table.add_column("Shares", justify="right")
     table.add_column("Avg Cost", justify="right")
     table.add_column("Cost Basis", justify="right")
+    if has_prices:
+        table.add_column("Price", justify="right")
+        table.add_column("Mkt Value", justify="right")
+        table.add_column("P&L", justify="right")
+        table.add_column("P&L %", justify="right")
     table.add_column("First Trade")
     table.add_column("Trades", justify="right")
 
+    total_cost = 0.0
+    total_value = 0.0
+    total_pnl = 0.0
+
     for p in pos:
         cost_basis = p["net_shares"] * p["avg_cost"]
-        table.add_row(
+        total_cost += cost_basis
+        row = [
             p["ticker"],
             f"{p['net_shares']:.2f}",
             f"${p['avg_cost']:.2f}",
             f"${cost_basis:.2f}",
-            p["first_trade"][:10],
-            str(p["trade_count"]),
-        )
+        ]
+        if has_prices:
+            price = p.get("current_price")
+            if price is not None:
+                mkt_val = p["net_shares"] * price
+                pnl = p["unrealized_pnl"]
+                pnl_pct = p["unrealized_pnl_pct"]
+                total_value += mkt_val
+                total_pnl += pnl
+                color = "green" if pnl >= 0 else "red"
+                row.extend([
+                    f"${price:.2f}",
+                    f"${mkt_val:.2f}",
+                    f"[{color}]${pnl:+.2f}[/{color}]",
+                    f"[{color}]{pnl_pct:+.1f}%[/{color}]",
+                ])
+            else:
+                row.extend(["-", "-", "-", "-"])
+        row.extend([p["first_trade"][:10], str(p["trade_count"])])
+        table.add_row(*row)
+
     console.print(table)
+
+    if has_prices and total_cost > 0:
+        color = "green" if total_pnl >= 0 else "red"
+        pct = (total_pnl / total_cost) * 100
+        console.print(
+            f"\n  Total: cost ${total_cost:.2f} → value ${total_value:.2f} | "
+            f"[{color}]P&L ${total_pnl:+.2f} ({pct:+.1f}%)[/{color}]"
+        )
 
 
 @app.command()

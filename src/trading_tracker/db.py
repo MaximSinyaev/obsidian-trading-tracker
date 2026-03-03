@@ -144,6 +144,13 @@ def edit_trade(
     return cur.rowcount > 0
 
 
+def delete_trade(conn: sqlite3.Connection, trade_id: int) -> bool:
+    """Delete a trade by ID. Returns True if a row was deleted."""
+    cur = conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def close_position(
     conn: sqlite3.Connection,
     ticker: str,

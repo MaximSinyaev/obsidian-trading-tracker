@@ -91,25 +91,75 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def fetch_live_prices(tickers: list[str]) -> dict[str, float | None]:
+    """Fetch current prices for a list of tickers via yfinance.
+
+    Returns a dict of ticker -> price. Missing/failed tickers get None.
+    """
+    if not tickers:
+        return {}
+    import yfinance as yf
+
+    result: dict[str, float | None] = {}
+    try:
+        data = yf.download(tickers, period="1d", progress=False, threads=True)
+        if data.empty:
+            return {t: None for t in tickers}
+        close = data["Close"]
+        if len(tickers) == 1:
+            # yf.download returns a Series for single ticker
+            last = close.dropna().iloc[-1] if not close.dropna().empty else None
+            result[tickers[0]] = round(float(last), 2) if last is not None else None
+        else:
+            for t in tickers:
+                if t in close.columns:
+                    col = close[t].dropna()
+                    result[t] = round(float(col.iloc[-1]), 2) if not col.empty else None
+                else:
+                    result[t] = None
+    except Exception:
+        return {t: None for t in tickers}
+    # Fill any missing
+    for t in tickers:
+        if t not in result:
+            result[t] = None
+    return result
+
+
 def enrich_positions_with_prices(
     positions: list[dict[str, Any]],
     *,
-    api_enabled: bool = False,
+    live: bool = True,
 ) -> list[dict[str, Any]]:
-    """Add unrealized P&L to positions if live prices available.
+    """Add current price and unrealized P&L to positions."""
+    if not positions:
+        return positions
 
-    For MVP: returns positions as-is with unrealized_pnl = None.
-    """
-    # TODO: Phase 3 — integrate yfinance or another price API
-    #   for pos in positions:
-    #       pos["current_price"] = fetch_live_price(pos["ticker"])
-    #       pos["unrealized_pnl"] = (pos["current_price"] - pos["avg_cost"]) * pos["net_shares"]
-    if not api_enabled:
+    if not live:
         for pos in positions:
             pos["current_price"] = None
             pos["unrealized_pnl"] = None
+            pos["unrealized_pnl_pct"] = None
         return positions
-    raise NotImplementedError("Live price API not yet implemented")
+
+    tickers = [p["ticker"] for p in positions]
+    prices = fetch_live_prices(tickers)
+
+    for pos in positions:
+        price = prices.get(pos["ticker"])
+        pos["current_price"] = price
+        if price is not None:
+            cost_basis = pos["net_shares"] * pos["avg_cost"]
+            market_value = pos["net_shares"] * price
+            pos["unrealized_pnl"] = round(market_value - cost_basis, 2)
+            pos["unrealized_pnl_pct"] = (
+                round((price - pos["avg_cost"]) / pos["avg_cost"] * 100, 2)
+                if pos["avg_cost"] else 0.0
+            )
+        else:
+            pos["unrealized_pnl"] = None
+            pos["unrealized_pnl_pct"] = None
+    return positions
 
 
 # TODO: Phase 3 — multi-currency support

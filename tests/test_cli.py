@@ -111,6 +111,44 @@ class TestEdit:
         assert result.exit_code == 1
 
 
+class TestShow:
+    def test_show_trade(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55", "--strategy", "dividend"])
+        result = runner.invoke(app, ["show", "1"])
+        assert result.exit_code == 0
+        assert "FRO" in result.output
+        assert "dividend" in result.output
+
+    def test_show_nonexistent(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, ["show", "999"])
+        assert result.exit_code == 1
+
+
+class TestDelete:
+    def test_delete_with_yes(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        result = runner.invoke(app, ["delete", "1", "--yes"])
+        assert result.exit_code == 0
+        assert "deleted" in result.output.lower()
+
+    def test_delete_nonexistent(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, ["delete", "999", "--yes"])
+        assert result.exit_code == 1
+
+
+class TestPositionsNoLive:
+    def test_positions_no_live(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        result = runner.invoke(app, ["positions", "--no-live"])
+        assert result.exit_code == 0
+        assert "FRO" in result.output
+
+
 class TestHistory:
     def test_empty_history(self, tmp_config):
         runner.invoke(app, ["db", "init"])

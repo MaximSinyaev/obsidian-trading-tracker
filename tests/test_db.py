@@ -179,6 +179,21 @@ class TestClosePosition:
         assert closed[0]["lesson"] == "Trust the plan"
 
 
+class TestDeleteTrade:
+    def test_delete_existing(self, conn):
+        tid = db.add_trade(conn, "FRO", "buy", 3, 39.55)
+        assert db.delete_trade(conn, tid)
+        assert db.get_trade(conn, tid) is None
+
+    def test_delete_nonexistent_returns_false(self, conn):
+        assert not db.delete_trade(conn, 999)
+
+    def test_delete_removes_from_positions(self, conn):
+        db.add_trade(conn, "FRO", "buy", 3, 39.55)
+        db.delete_trade(conn, 1)
+        assert db.get_positions(conn) == []
+
+
 class TestHistory:
     def test_basic_history(self, conn):
         db.add_trade(conn, "FRO", "buy", 3, 39.55)

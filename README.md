@@ -50,6 +50,21 @@ uv tool install -e .
 trade --help
 ```
 
+### Shell Completion
+
+```bash
+# Bash
+trade --install-completion bash
+
+# Zsh
+trade --install-completion zsh
+
+# Fish
+trade --install-completion fish
+```
+
+After installing, restart your shell. You'll get tab-completion for all commands and options.
+
 ## Configuration
 
 Create `.traderc.toml` in your project directory or home (`~/.traderc.toml`):
@@ -137,6 +152,27 @@ trade edit 1 --shares 5 --notes "Corrected share count"
 trade edit 1 --strategy momentum --tags "tech,breakout"
 ```
 
+### `trade show` — View trade details
+
+```bash
+trade show <TRADE_ID>
+```
+
+Displays all fields of a single trade in a formatted table.
+
+### `trade delete` — Remove a trade
+
+```bash
+trade delete <TRADE_ID>
+```
+
+Shows the trade and asks for confirmation before deleting. Use `--yes` / `-y` to skip confirmation.
+
+```bash
+trade delete 5          # asks for confirmation
+trade delete 5 --yes    # deletes immediately
+```
+
 ### `trade close` — Close a position
 
 ```bash
@@ -171,21 +207,28 @@ trade close AAPL 10 165.00 \
   --rating 4
 ```
 
-### `trade positions` — View open positions
+### `trade positions` — View open positions with live prices
 
 ```bash
-trade positions
+trade positions            # with live Yahoo Finance prices
+trade positions --no-live  # skip price fetching (offline)
 ```
 
+Shows open positions with current market price, unrealized P&L, and a portfolio total:
+
 ```
-                          Open Positions
-┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┓
-┃ Ticker ┃ Shares ┃ Avg Cost ┃ Cost Basis ┃ First Trade ┃ Trades ┃
-┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━┩
-│ FRO    │   3.00 │   $39.55 │    $118.65 │ 2026-03-03  │      1 │
-│ AAPL   │  10.00 │  $150.00 │  $1500.00  │ 2026-03-01  │      2 │
-└────────┴────────┴──────────┴────────────┴─────────────┴────────┘
+                                 Open Positions
+┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
+┃ Ticker ┃ Shares ┃ Avg Cost ┃ Cost Basis ┃  Price ┃ Mkt Value ┃     P&L ┃  P&L % ┃
+┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━┩
+│ FRO    │   3.00 │   $39.55 │    $118.65 │ $42.10 │   $126.30 │  +$7.65 │ +6.4%  │
+│ AAPL   │  10.00 │  $150.00 │  $1500.00  │$155.20 │  $1552.00 │ +$52.00 │ +3.5%  │
+└────────┴────────┴──────────┴────────────┴────────┴───────────┴─────────┴────────┘
+
+  Total: cost $1618.65 → value $1678.30 | P&L +$59.65 (+3.7%)
 ```
+
+Prices are fetched from Yahoo Finance (free, no API key needed).
 
 ### `trade history` — Browse past trades
 
