@@ -1,0 +1,35 @@
+---
+date: "{{ date }}"
+type: trading-daily
+trades: {{ trade_count }}
+pnl: {{ total_pnl }}
+tags:
+  - trading
+  - daily-log
+---
+
+# Trading Log — {{ date }}
+
+## Trades
+
+| # | Ticker | Action | Shares | Price | Commission | Strategy |
+|---|--------|--------|--------|-------|------------|----------|
+{% for t in trades -%}
+| {{ t.id }} | {{ t.ticker }} | {{ t.action }} | {{ t.shares }} | ${{ "%.2f"|format(t.price) }} | ${{ "%.2f"|format(t.commission) }} | {{ t.strategy or "-" }} |
+{% endfor %}
+
+{% if closed_trades -%}
+## Closed Positions
+
+| Ticker | Shares | Entry | Exit | Net P&L | P&L % |
+|--------|--------|-------|------|---------|-------|
+{% for c in closed_trades -%}
+| {{ c.ticker }} | {{ c.shares }} | ${{ "%.2f"|format(c.avg_entry_price) }} | ${{ "%.2f"|format(c.avg_exit_price) }} | ${{ "%.2f"|format(c.net_pnl) }} | {{ "%.1f"|format(c.pnl_percent) }}% |
+{% endfor %}
+
+**Daily P&L: ${{ "%.2f"|format(total_pnl) }}**
+{% endif %}
+
+## Notes
+
+<!-- Add your daily notes here -->

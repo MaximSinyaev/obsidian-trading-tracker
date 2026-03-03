@@ -1,0 +1,49 @@
+---
+ticker: "{{ ticker }}"
+type: trading-position
+status: "{{ status }}"
+shares: {{ shares }}
+avg_cost: {{ "%.2f"|format(avg_cost) }}
+cost_basis: {{ "%.2f"|format(cost_basis) }}
+{% if strategy -%}
+strategy: "{{ strategy }}"
+{% endif -%}
+first_trade: "{{ first_trade }}"
+last_trade: "{{ last_trade }}"
+trade_count: {{ trade_count }}
+tags:
+  - trading
+  - position
+---
+
+# {{ ticker }} — {{ status | capitalize }} Position
+
+## Summary
+
+- **Shares:** {{ shares }}
+- **Avg Cost:** ${{ "%.2f"|format(avg_cost) }}
+- **Cost Basis:** ${{ "%.2f"|format(cost_basis) }}
+- **First Trade:** {{ first_trade[:10] }}
+- **Trade Count:** {{ trade_count }}
+
+## Trade History
+
+| # | Action | Shares | Price | Date |
+|---|--------|--------|-------|------|
+{% for t in trades -%}
+| {{ t.id }} | {{ t.action }} | {{ t.shares }} | ${{ "%.2f"|format(t.price) }} | {{ t.timestamp[:10] }} |
+{% endfor %}
+
+{% if closed_info -%}
+## Closed
+
+- **Exit Price:** ${{ "%.2f"|format(closed_info.avg_exit_price) }}
+- **Net P&L:** ${{ "%.2f"|format(closed_info.net_pnl) }} ({{ "%.1f"|format(closed_info.pnl_percent) }}%)
+{% if closed_info.what_worked %}- **What Worked:** {{ closed_info.what_worked }}{% endif %}
+{% if closed_info.what_failed %}- **What Failed:** {{ closed_info.what_failed }}{% endif %}
+{% if closed_info.lesson %}- **Lesson:** {{ closed_info.lesson }}{% endif %}
+{% endif %}
+
+## Notes
+
+<!-- Add your position notes here -->

@@ -1,0 +1,15 @@
+# Trading Tracker configuration
+# Place this file in your project directory or home directory (~/.traderc.toml)
+
+[database]
+path = "trades.db"
+
+[defaults]
+commission = 0.0
+timezone = "Asia/Almaty"
+asset_type = "stock"
+source = "manual"
+
+[obsidian]
+vault_path = ""  # set to your Obsidian vault path
+trading_folder = "Trading"
