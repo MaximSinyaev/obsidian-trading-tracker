@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-09
+
+### Added
+- **Auto-close on add** — `trade add TICKER sell` against a long (or `buy` against a short) automatically creates closed_trades with P&L. No need for explicit `close` command
+- **Correct avg cost** — positions computed by walking trades chronologically; handles partial closes, full close + reopen, and position flips correctly
+- **`--currency` option** — `trade add ... --currency KZT` saves currency to database (was always defaulting to USD)
+- **E2E tests from real broker data** — 35 tests verifying P&L against Freedom Finance report (HSBK partial closes, options, shorts, DCA)
+- CLI shows auto-close details: entry/exit prices, P&L, remaining shares
+
+### Changed
+- `trade close` command deprecated — use `trade add TICKER sell/buy` instead
+- Positions no longer use SQL view for avg_cost — computed in Python for correctness
+- 129 tests total (was 83)
+
+### Fixed
+- Currency not saved to database when using `--currency` flag
+- Avg cost wrong after full close + reopen (was averaging ALL buys, not just current position)
+- Avg cost wrong after partial sell + new buys (same root cause)
+
 ## [0.4.0] - 2026-03-04
 
 ### Added

@@ -79,22 +79,13 @@ class TestPositions:
         assert "FRO" in result.output
 
 
-class TestClose:
-    def test_close_position(self, tmp_config):
+class TestCloseDeprecated:
+    def test_close_shows_deprecation(self, tmp_config):
         runner.invoke(app, ["db", "init"])
-        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
-        result = runner.invoke(app, [
-            "close", "FRO", "3", "43.00",
-            "--commission", "10",
-            "--what-worked", "Good timing",
-        ])
-        assert result.exit_code == 0
-        assert "Closed" in result.output
-
-    def test_close_nonexistent(self, tmp_config):
-        runner.invoke(app, ["db", "init"])
-        result = runner.invoke(app, ["close", "NOPE", "1", "10"])
+        result = runner.invoke(app, ["close", "FRO", "3", "43.00"])
         assert result.exit_code == 1
+        assert "deprecated" in result.output.lower()
+        assert "trade add" in result.output
 
 
 class TestEdit:
@@ -173,6 +164,50 @@ class TestAddTimestamp:
         assert "10" in result.output
 
 
+class TestCurrency:
+    def test_add_with_currency(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        result = runner.invoke(app, [
+            "add", "HSBK", "buy", "10", "350",
+            "--currency", "KZT",
+        ])
+        assert result.exit_code == 0
+        result = runner.invoke(app, ["show", "1"])
+        assert "KZT" in result.output
+
+    def test_default_currency_usd(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        result = runner.invoke(app, ["show", "1"])
+        assert "USD" in result.output
+
+
+class TestAutoCloseCli:
+    def test_add_sell_shows_auto_close(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        result = runner.invoke(app, ["add", "FRO", "sell", "3", "43.00"])
+        assert result.exit_code == 0
+        assert "Closed" in result.output
+        assert "P&L" in result.output
+
+    def test_stats_work_after_add_only(self, tmp_config):
+        """Stats should work using only add_trade (no close needed)."""
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        runner.invoke(app, ["add", "FRO", "sell", "3", "43.00"])
+        result = runner.invoke(app, ["stats"])
+        assert result.exit_code == 0
+        assert "Win Rate" in result.output
+
+    def test_add_sell_partial_shows_remaining(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "AAPL", "buy", "10", "150"])
+        result = runner.invoke(app, ["add", "AAPL", "sell", "4", "160"])
+        assert result.exit_code == 0
+        assert "Remaining" in result.output
+
+
 class TestShortCli:
     def test_short_position_display(self, tmp_config):
         runner.invoke(app, ["db", "init"])
@@ -182,25 +217,25 @@ class TestShortCli:
         assert "TSLA" in result.output
         assert "SHORT" in result.output
 
-    def test_close_short_via_cli(self, tmp_config):
+    def test_close_short_via_add_buy(self, tmp_config):
         runner.invoke(app, ["db", "init"])
         runner.invoke(app, ["add", "TSLA", "sell", "5", "200"])
-        result = runner.invoke(app, ["close", "TSLA", "5", "180"])
+        result = runner.invoke(app, ["add", "TSLA", "buy", "5", "180"])
         assert result.exit_code == 0
         assert "SHORT" in result.output
         assert "Closed" in result.output
 
-    def test_close_long_shows_long_label(self, tmp_config):
+    def test_close_long_via_add_sell(self, tmp_config):
         runner.invoke(app, ["db", "init"])
         runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
-        result = runner.invoke(app, ["close", "FRO", "3", "43"])
+        result = runner.invoke(app, ["add", "FRO", "sell", "3", "43"])
         assert result.exit_code == 0
         assert "LONG" in result.output
 
     def test_option_expiry_at_zero(self, tmp_config):
         runner.invoke(app, ["db", "init"])
         runner.invoke(app, ["add", "AAPL240119C190", "buy", "1", "5.0"])
-        result = runner.invoke(app, ["close", "AAPL240119C190", "1", "0"])
+        result = runner.invoke(app, ["add", "AAPL240119C190", "sell", "1", "0"])
         assert result.exit_code == 0
         assert "Closed" in result.output
 
@@ -238,7 +273,7 @@ class TestStats:
     def test_stats_with_closed(self, tmp_config):
         runner.invoke(app, ["db", "init"])
         runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
-        runner.invoke(app, ["close", "FRO", "3", "43.00"])
+        runner.invoke(app, ["add", "FRO", "sell", "3", "43.00"])
         result = runner.invoke(app, ["stats"])
         assert result.exit_code == 0
         assert "Win Rate" in result.output

@@ -73,11 +73,15 @@ def add(
     timestamp: Annotated[Optional[str], typer.Option("--date", "--timestamp")] = None,
     instrument: Annotated[Optional[str], typer.Option("--instrument", "-i")] = None,
     leverage: Annotated[float, typer.Option("--leverage")] = 1.0,
+    currency: Annotated[str, typer.Option("--currency", "--ccy")] = "USD",
 ):
     """Add a new trade (BUY or SELL)."""
     cfg = load_config()
     conn = db.init_db(cfg.db_path)
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
+
+    # Snapshot position before to detect auto-close
+    pos_before = db.get_position(conn, ticker)
 
     trade_id = db.add_trade(
         conn,
@@ -98,11 +102,41 @@ def add(
         position_group=group,
         asset_type=cfg.defaults.asset_type,
         instrument=instrument or cfg.defaults.asset_type,
+        currency=currency,
         leverage=leverage,
     )
     console.print(
         f"[green]Trade #{trade_id}: {action.upper()} {shares} {ticker.upper()} @ ${price:.2f}[/green]"
     )
+
+    # Show auto-close info if position was reduced
+    if pos_before is not None:
+        net_before = pos_before["net_shares"]
+        is_long = net_before > 0
+        is_counter = (is_long and action.upper() == "SELL") or (
+            not is_long and action.upper() == "BUY"
+        )
+        if is_counter:
+            ct = conn.execute(
+                "SELECT * FROM closed_trades WHERE ticker = ? ORDER BY id DESC LIMIT 1",
+                (ticker.upper(),),
+            ).fetchone()
+            if ct:
+                dir_label = "SHORT" if ct["direction"] == "short" else "LONG"
+                color = "green" if ct["net_pnl"] >= 0 else "red"
+                console.print(
+                    f"[{color}]  ↳ Closed {dir_label}: "
+                    f"${ct['avg_entry_price']:.2f} → ${ct['avg_exit_price']:.2f} | "
+                    f"P&L: ${ct['net_pnl']:.2f} ({ct['pnl_percent']:.1f}%)[/{color}]"
+                )
+                pos_after = db.get_position(conn, ticker)
+                if pos_after is None:
+                    console.print("  Position fully closed.")
+                else:
+                    remaining = abs(pos_after["net_shares"])
+                    console.print(
+                        f"  Remaining: {remaining:.2f} shares @ ${pos_after['avg_cost']:.2f}"
+                    )
 
 
 @app.command()
@@ -223,49 +257,20 @@ def delete(
     console.print(f"[green]Trade #{trade_id} deleted.[/green]")
 
 
-@app.command()
+@app.command(deprecated=True)
 def close(
-    ticker: str,
-    shares: float,
-    price: float,
-    commission: Annotated[float, typer.Option("--commission", "-c")] = 0,
-    strategy: Annotated[Optional[str], typer.Option("--strategy", "-s")] = None,
-    what_worked: Annotated[Optional[str], typer.Option("--what-worked")] = None,
-    what_failed: Annotated[Optional[str], typer.Option("--what-failed")] = None,
-    lesson: Annotated[Optional[str], typer.Option("--lesson")] = None,
-    rating: Annotated[Optional[int], typer.Option("--rating")] = None,
+    ticker: str = typer.Argument(default=""),
+    shares: float = typer.Argument(default=0),
+    price: float = typer.Argument(default=0),
 ):
-    """Close (fully or partially) a position."""
-    conn = _get_conn()
-    try:
-        result = db.close_position(
-            conn,
-            ticker,
-            shares,
-            price,
-            commission=commission,
-            strategy=strategy,
-            what_worked=what_worked,
-            what_failed=what_failed,
-            lesson=lesson,
-            rating=rating,
-        )
-    except ValueError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1) from None
-
-    direction = result.get("direction", "long")
-    dir_label = "SHORT" if direction == "short" else "LONG"
-    color = "green" if result["net_pnl"] >= 0 else "red"
+    """Deprecated: use 'trade add <ticker> sell <shares> <price>' instead."""
     console.print(
-        f"[{color}]Closed {dir_label} {result['shares']} {result['ticker']} | "
-        f"Entry: ${result['avg_entry']:.2f} → Exit: ${result['exit_price']:.2f} | "
-        f"P&L: ${result['net_pnl']:.2f} ({result['pnl_percent']:.1f}%)[/{color}]"
+        "[yellow]The 'close' command is deprecated.[/yellow]\n"
+        "Positions are now closed automatically when you add a counter-trade:\n"
+        "  [cyan]trade add TICKER sell SHARES PRICE[/cyan]  (to close a long)\n"
+        "  [cyan]trade add TICKER buy SHARES PRICE[/cyan]   (to close a short)"
     )
-    if result["remaining_shares"] > 0:
-        console.print(
-            f"  Remaining: {result['remaining_shares']} shares @ ${result['remaining_avg_cost']:.2f}"
-        )
+    raise typer.Exit(1)
 
 
 @app.command()

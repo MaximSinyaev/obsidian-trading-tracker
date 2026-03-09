@@ -65,8 +65,18 @@ def add_trade(
     currency: str = "USD",
     leverage: float = 1.0,
 ) -> int:
-    """Insert a trade and return its id."""
+    """Insert a trade and return its id.
+
+    If this trade reduces an existing position (e.g. SELL against a long),
+    a closed_trades record with P&L is created automatically.
+    """
+    ticker_upper = ticker.upper()
+    action_upper = action.upper()
     ts = timestamp or datetime.now().isoformat(timespec="seconds")
+
+    # Snapshot position BEFORE inserting this trade
+    pos_before = get_position(conn, ticker_upper)
+
     tags_json = json.dumps(tags or [])
     cur = conn.execute(
         """
@@ -77,8 +87,8 @@ def add_trade(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            ticker.upper(),
-            action.upper(),
+            ticker_upper,
+            action_upper,
             shares,
             price,
             commission,
@@ -101,8 +111,97 @@ def add_trade(
             leverage,
         ),
     )
+    trade_id: int = cur.lastrowid  # type: ignore[assignment]
+
+    # Auto-close: if this trade reduces an existing position, record it
+    _auto_record_close(
+        conn, ticker_upper, action_upper, shares, price,
+        commission, ts, trade_id, pos_before, strategy,
+    )
+
     conn.commit()
-    return cur.lastrowid  # type: ignore[return-value]
+    return trade_id
+
+
+def _auto_record_close(
+    conn: sqlite3.Connection,
+    ticker: str,
+    action: str,
+    shares: float,
+    price: float,
+    commission: float,
+    timestamp: str,
+    exit_trade_id: int,
+    pos_before: dict[str, Any] | None,
+    strategy: str | None = None,
+) -> None:
+    """Create a closed_trades record if this trade reduces a position."""
+    if pos_before is None:
+        return
+
+    net_before = pos_before["net_shares"]
+    is_long = net_before > 0
+
+    # Is this a counter-trade? SELL against long, or BUY against short
+    is_counter = (is_long and action == "SELL") or (not is_long and action == "BUY")
+    if not is_counter:
+        return
+
+    abs_before = abs(net_before)
+    shares_closed = min(shares, abs_before)
+    avg_entry = pos_before["avg_cost"]
+
+    # Entry trade IDs
+    entry_action = "BUY" if is_long else "SELL"
+    entry_rows = conn.execute(
+        "SELECT id FROM trades WHERE ticker = ? AND action = ? ORDER BY timestamp",
+        (ticker, entry_action),
+    ).fetchall()
+    entry_trade_ids = [r["id"] for r in entry_rows]
+
+    # P&L
+    if is_long:
+        gross_pnl = shares_closed * price - shares_closed * avg_entry
+    else:
+        gross_pnl = shares_closed * avg_entry - shares_closed * price
+
+    net_pnl = gross_pnl - commission
+    cost_basis = shares_closed * avg_entry
+    pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis else 0
+
+    # Hold duration
+    try:
+        dt_entry = datetime.fromisoformat(pos_before["first_trade"])
+        dt_exit = datetime.fromisoformat(timestamp)
+        hold_days = (dt_exit - dt_entry).total_seconds() / 86400
+    except (ValueError, TypeError):
+        hold_days = None
+
+    conn.execute(
+        """
+        INSERT INTO closed_trades
+            (ticker, direction, entry_trade_ids, exit_trade_ids, shares,
+             avg_entry_price, avg_exit_price, entry_avg_cost, total_commission,
+             gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            ticker,
+            "long" if is_long else "short",
+            json.dumps(entry_trade_ids),
+            json.dumps([exit_trade_id]),
+            shares_closed,
+            avg_entry,
+            price,
+            avg_entry,
+            commission,
+            round(gross_pnl, 2),
+            round(net_pnl, 2),
+            round(pnl_percent, 2),
+            round(hold_days, 2) if hold_days is not None else None,
+            strategy,
+        ),
+    )
 
 
 def edit_trade(
@@ -172,10 +271,10 @@ def close_position(
 ) -> dict[str, Any]:
     """Close (fully or partially) a position — works for both long and short.
 
-    Long position (net_shares > 0): creates SELL trade, P&L = exit - entry
-    Short position (net_shares < 0): creates BUY trade, P&L = entry - exit
-
-    Wrapped in a transaction for atomicity.
+    This is a convenience wrapper around add_trade that:
+    1. Validates the position exists and shares are valid
+    2. Creates the counter-trade (add_trade auto-creates closed_trades with P&L)
+    3. Adds optional review notes (what_worked, lesson, etc.)
     """
     ticker = ticker.upper()
 
@@ -194,91 +293,49 @@ def close_position(
         )
 
     avg_entry = pos["avg_cost"]
-    # Entry side: BUY for long, SELL for short
-    entry_action = "BUY" if is_long else "SELL"
     close_action = "SELL" if is_long else "BUY"
 
-    entry_rows = conn.execute(
-        "SELECT id FROM trades WHERE ticker = ? AND action = ? ORDER BY timestamp",
-        (ticker, entry_action),
-    ).fetchall()
-    entry_trade_ids = [r["id"] for r in entry_rows]
+    # add_trade auto-creates closed_trades via _auto_record_close
+    add_trade(
+        conn, ticker, close_action, shares, exit_price,
+        commission=commission, strategy=strategy,
+    )
 
-    try:
-        ts = datetime.now().isoformat(timespec="seconds")
-        tags_json = json.dumps([])
-        cur = conn.execute(
-            """
-            INSERT INTO trades
-                (ticker, action, shares, price, commission, timestamp, strategy, setup,
-                 confidence, stop_loss, target_1, target_2, entry_plan, note_path,
-                 source, tags, notes, position_group, asset_type, instrument, currency, leverage)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (ticker, close_action, shares, exit_price, commission, ts,
-             strategy, None, None, None, None, None, None, None,
-             "manual", tags_json, None, None, "stock", "stock", "USD", 1.0),
-        )
-        exit_trade_id = cur.lastrowid
+    # Add review notes to the auto-created closed_trades record
+    review_fields: dict[str, Any] = {}
+    if what_worked is not None:
+        review_fields["what_worked"] = what_worked
+    if what_failed is not None:
+        review_fields["what_failed"] = what_failed
+    if lesson is not None:
+        review_fields["lesson"] = lesson
+    if rating is not None:
+        review_fields["rating"] = rating
 
-        # P&L calculation
-        if is_long:
-            # Long: profit when exit > entry
-            gross_pnl = shares * exit_price - shares * avg_entry
-        else:
-            # Short: profit when entry > exit
-            gross_pnl = shares * avg_entry - shares * exit_price
+    if review_fields:
+        ct = conn.execute(
+            "SELECT id FROM closed_trades WHERE ticker = ? ORDER BY id DESC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        if ct:
+            set_clause = ", ".join(f"{k} = ?" for k in review_fields)
+            values = list(review_fields.values()) + [ct["id"]]
+            conn.execute(
+                f"UPDATE closed_trades SET {set_clause} WHERE id = ?", values
+            )
+            conn.commit()
 
-        total_comm = commission
-        net_pnl = gross_pnl - total_comm
-        cost_basis = shares * avg_entry
-        pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis else 0
+    # Compute result for caller
+    if is_long:
+        gross_pnl = shares * exit_price - shares * avg_entry
+    else:
+        gross_pnl = shares * avg_entry - shares * exit_price
 
-        # Hold duration
-        first_entry = pos["first_trade"]
-        try:
-            dt_entry = datetime.fromisoformat(first_entry)
-            dt_exit = datetime.fromisoformat(ts)
-            hold_days = (dt_exit - dt_entry).total_seconds() / 86400
-        except (ValueError, TypeError):
-            hold_days = None
-
-        conn.execute(
-            """
-            INSERT INTO closed_trades
-                (ticker, direction, entry_trade_ids, exit_trade_ids, shares,
-                 avg_entry_price, avg_exit_price, entry_avg_cost, total_commission,
-                 gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy,
-                 what_worked, what_failed, lesson, rating)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ticker,
-                "long" if is_long else "short",
-                json.dumps(entry_trade_ids),
-                json.dumps([exit_trade_id]),
-                shares,
-                avg_entry,
-                exit_price,
-                avg_entry,
-                total_comm,
-                round(gross_pnl, 2),
-                round(net_pnl, 2),
-                round(pnl_percent, 2),
-                round(hold_days, 2) if hold_days is not None else None,
-                strategy,
-                what_worked,
-                what_failed,
-                lesson,
-                rating,
-            ),
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
+    net_pnl = gross_pnl - commission
+    cost_basis = shares * avg_entry
+    pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis else 0
     remaining = abs_held - shares
+
     return {
         "ticker": ticker,
         "direction": "long" if is_long else "short",
@@ -293,18 +350,100 @@ def close_position(
     }
 
 
+def _compute_position_from_trades(trades: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Compute position by walking trades chronologically (avg cost method).
+
+    - Adding to a position: avg_cost = weighted average of old + new
+    - Reducing a position: avg_cost stays the same
+    - Full close (net=0): avg_cost resets
+    - Position flip: avg_cost = price of the flip trade
+    """
+    net = 0.0
+    avg = 0.0
+    total_commission = 0.0
+    first_ts: str | None = None
+    last_ts: str | None = None
+    count = 0
+
+    for t in trades:
+        action = t["action"]
+        shares = t["shares"]
+        price = t["price"]
+        count += 1
+        total_commission += t.get("commission", 0) or 0
+        last_ts = t["timestamp"]
+
+        if action == "BUY":
+            if net >= 0:
+                # Flat or long — adding to long
+                avg = (net * avg + shares * price) / (net + shares)
+                net += shares
+            else:
+                # Short — covering
+                net += shares
+                if net > 0:
+                    avg = price
+                elif net == 0:
+                    avg = 0.0
+        elif action == "SELL":
+            if net <= 0:
+                # Flat or short — adding to short
+                avg = (abs(net) * avg + shares * price) / (abs(net) + shares)
+                net -= shares
+            else:
+                # Long — selling
+                net -= shares
+                if net < 0:
+                    avg = price
+                elif net == 0:
+                    avg = 0.0
+
+        # Track first trade of current position epoch
+        if net != 0 and first_ts is None:
+            first_ts = t["timestamp"]
+        elif net == 0:
+            first_ts = None
+
+    if net == 0:
+        return None
+
+    return {
+        "ticker": trades[0]["ticker"],
+        "net_shares": net,
+        "avg_cost": avg,
+        "total_commission": total_commission,
+        "first_trade": first_ts,
+        "last_trade": last_ts,
+        "trade_count": count,
+    }
+
+
 def get_position(conn: sqlite3.Connection, ticker: str) -> dict[str, Any] | None:
     """Get a single open position by ticker."""
-    row = conn.execute(
-        "SELECT * FROM positions WHERE ticker = ?", (ticker.upper(),)
-    ).fetchone()
-    return dict(row) if row else None
+    rows = conn.execute(
+        "SELECT * FROM trades WHERE ticker = ? ORDER BY timestamp, id",
+        (ticker.upper(),),
+    ).fetchall()
+    if not rows:
+        return None
+    return _compute_position_from_trades([dict(r) for r in rows])
 
 
 def get_positions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Get all open positions."""
-    rows = conn.execute("SELECT * FROM positions").fetchall()
-    return [dict(r) for r in rows]
+    rows = conn.execute(
+        "SELECT * FROM trades ORDER BY ticker, timestamp, id"
+    ).fetchall()
+    by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        d = dict(r)
+        by_ticker.setdefault(d["ticker"], []).append(d)
+    positions = []
+    for trades in by_ticker.values():
+        pos = _compute_position_from_trades(trades)
+        if pos is not None:
+            positions.append(pos)
+    return positions
 
 
 def get_trade(conn: sqlite3.Connection, trade_id: int) -> dict[str, Any] | None:

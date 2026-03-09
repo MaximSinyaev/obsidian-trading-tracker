@@ -276,6 +276,104 @@ class TestShortPositions:
         assert result["gross_pnl"] == -5.0  # Lost full premium
 
 
+class TestAutoClose:
+    """add_trade should auto-create closed_trades when it reduces a position."""
+
+    def test_sell_after_buy_auto_closes(self, conn):
+        """BUY then SELL via add_trade — closed_trades should be created."""
+        db.add_trade(conn, "FRO", "buy", 3, 39.55, timestamp="2026-01-01T10:00:00")
+        db.add_trade(conn, "FRO", "sell", 3, 43.00, timestamp="2026-01-05T10:00:00")
+
+        # Position should be fully closed
+        assert db.get_position(conn, "FRO") is None
+
+        # closed_trades should exist
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 1
+        assert closed[0]["ticker"] == "FRO"
+        assert closed[0]["direction"] == "long"
+        assert closed[0]["shares"] == 3
+        assert closed[0]["avg_entry_price"] == 39.55
+        assert closed[0]["avg_exit_price"] == 43.00
+        # Gross P&L = 3*(43-39.55) = 10.35
+        assert closed[0]["gross_pnl"] == 10.35
+
+    def test_partial_sell_auto_closes(self, conn):
+        db.add_trade(conn, "AAPL", "buy", 10, 150.0)
+        db.add_trade(conn, "AAPL", "sell", 4, 160.0)
+
+        # Position partially open
+        pos = db.get_position(conn, "AAPL")
+        assert pos is not None
+        assert pos["net_shares"] == 6
+
+        # closed_trades for the 4 shares
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 1
+        assert closed[0]["shares"] == 4
+        # Gross = 4*(160-150) = 40
+        assert closed[0]["gross_pnl"] == 40.0
+
+    def test_short_buy_auto_closes(self, conn):
+        """SELL to open short, then BUY via add_trade should auto-close."""
+        db.add_trade(conn, "TSLA", "sell", 5, 200.0)
+        db.add_trade(conn, "TSLA", "buy", 5, 180.0)
+
+        assert db.get_position(conn, "TSLA") is None
+
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 1
+        assert closed[0]["direction"] == "short"
+        # Short profit: (200-180)*5 = 100
+        assert closed[0]["gross_pnl"] == 100.0
+
+    def test_additional_buy_no_auto_close(self, conn):
+        """Adding to a position should NOT create closed_trades."""
+        db.add_trade(conn, "AAPL", "buy", 5, 150.0)
+        db.add_trade(conn, "AAPL", "buy", 3, 155.0)
+
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 0
+
+        pos = db.get_position(conn, "AAPL")
+        assert pos["net_shares"] == 8
+
+    def test_auto_close_with_commission(self, conn):
+        db.add_trade(conn, "FRO", "buy", 3, 39.55, commission=1.83)
+        db.add_trade(conn, "FRO", "sell", 3, 35.946, commission=1.78)
+
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 1
+        # Gross = 3*(35.946 - 39.55) = -10.812 → rounded to -10.81
+        assert closed[0]["gross_pnl"] == pytest.approx(-10.81, abs=0.01)
+        # Net = -10.81 - 1.78 = -12.59
+        assert closed[0]["net_pnl"] == pytest.approx(-12.59, abs=0.01)
+
+    def test_stats_work_after_add_trade(self, conn):
+        """trade stats should work without ever calling close_position."""
+        from trading_tracker import analytics
+
+        db.add_trade(conn, "FRO", "buy", 3, 39.55)
+        db.add_trade(conn, "FRO", "sell", 3, 43.00)
+        db.add_trade(conn, "RBLX", "buy", 1, 57.0)
+        db.add_trade(conn, "RBLX", "sell", 1, 102.88)
+
+        closed = db.get_closed_trades(conn)
+        assert len(closed) == 2
+
+        stats = analytics.compute_stats(closed)
+        assert stats["total_trades"] == 2
+        assert stats["wins"] == 2
+        assert stats["total_pnl"] > 0
+
+    def test_auto_close_preserves_strategy(self, conn):
+        db.add_trade(conn, "FRO", "buy", 3, 39.55, strategy="momentum")
+        db.add_trade(conn, "FRO", "sell", 3, 43.00, strategy="momentum")
+
+        closed = db.get_closed_trades(conn)
+        assert closed[0]["strategy"] == "momentum"
+
+
 class TestDeleteTrade:
     def test_delete_existing(self, conn):
         tid = db.add_trade(conn, "FRO", "buy", 3, 39.55)
