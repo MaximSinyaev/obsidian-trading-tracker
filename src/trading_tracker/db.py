@@ -185,8 +185,8 @@ def _auto_record_close(
             (ticker, direction, entry_trade_ids, exit_trade_ids, shares,
              avg_entry_price, avg_exit_price, entry_avg_cost, total_commission,
              gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy,
-             currency, instrument)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             currency, instrument, closed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             ticker,
@@ -205,6 +205,7 @@ def _auto_record_close(
             strategy,
             currency,
             instrument,
+            timestamp,
         ),
     )
 
