@@ -278,6 +278,18 @@ class TestStats:
         assert result.exit_code == 0
         assert "Win Rate" in result.output
 
+    def test_stats_shows_extended_metrics(self, tmp_config):
+        runner.invoke(app, ["db", "init"])
+        runner.invoke(app, ["add", "FRO", "buy", "3", "39.55"])
+        runner.invoke(app, ["add", "FRO", "sell", "3", "43.00"])
+        runner.invoke(app, ["add", "AAPL", "buy", "2", "150"])
+        runner.invoke(app, ["add", "AAPL", "sell", "2", "145"])
+        result = runner.invoke(app, ["stats"])
+        assert result.exit_code == 0
+        assert "Profit Factor" in result.output
+        assert "Expectancy" in result.output
+        assert "per trade" in result.output
+
 
 class TestValidate:
     def test_clean_db(self, tmp_config):

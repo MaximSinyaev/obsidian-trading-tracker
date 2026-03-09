@@ -14,6 +14,13 @@ class Action(str, Enum):
     SELL = "SELL"
 
 
+CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "KZT": "₸", "RUB": "₽", "GBP": "£", "JPY": "¥"}
+
+
+def currency_symbol(ccy: str) -> str:
+    return CURRENCY_SYMBOLS.get(ccy.upper(), ccy.upper())
+
+
 class Trade(BaseModel):
     id: int | None = None
     ticker: str
@@ -71,6 +78,7 @@ class ClosedTrade(BaseModel):
     lesson: str | None = None
     rating: int | None = Field(default=None, ge=1, le=5)
     closed_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    currency: str = "USD"
 
 
 class Position(BaseModel):
@@ -81,6 +89,7 @@ class Position(BaseModel):
     first_trade: str
     last_trade: str
     trade_count: int
+    currency: str = "USD"
 
     @property
     def market_value(self) -> float:

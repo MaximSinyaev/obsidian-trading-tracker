@@ -4,7 +4,12 @@ import pytest
 
 from trading_tracker.analytics import (
     calculate_partial_close,
+    compute_holding_analysis,
+    compute_max_drawdown,
     compute_stats,
+    compute_streaks,
+    instrument_breakdown,
+    monthly_breakdown,
     strategy_breakdown,
 )
 
@@ -126,3 +131,234 @@ class TestStrategyBreakdown:
         ]
         result = strategy_breakdown(trades)
         assert result[0]["strategy"] == "unknown"
+
+
+class TestProfitFactor:
+    def test_mixed_trades(self):
+        trades = [
+            {"net_pnl": 120.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": -50.0, "total_commission": 0, "hold_duration_days": 1.0},
+        ]
+        stats = compute_stats(trades)
+        # profit_factor = 120 / 50 = 2.4
+        assert stats["profit_factor"] == 2.4
+
+    def test_all_wins_no_losses(self):
+        trades = [
+            {"net_pnl": 100.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": 50.0, "total_commission": 0, "hold_duration_days": 1.0},
+        ]
+        stats = compute_stats(trades)
+        assert stats["profit_factor"] is None  # infinite (no losses)
+
+    def test_all_losses(self):
+        trades = [
+            {"net_pnl": -30.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": -20.0, "total_commission": 0, "hold_duration_days": 1.0},
+        ]
+        stats = compute_stats(trades)
+        assert stats["profit_factor"] == 0.0
+
+    def test_empty(self):
+        stats = compute_stats([])
+        assert stats["profit_factor"] is None
+
+
+class TestExpectancy:
+    def test_positive_expectancy(self):
+        trades = [
+            {"net_pnl": 100.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": 100.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": -50.0, "total_commission": 0, "hold_duration_days": 1.0},
+        ]
+        stats = compute_stats(trades)
+        # win_rate=66.7%, avg_win=100, avg_loss=-50
+        # expectancy = 0.667 * 100 + 0.333 * (-50) = 66.7 - 16.65 = 50.05
+        assert stats["expectancy"] > 0
+        assert stats["avg_win"] == 100.0
+        assert stats["avg_loss"] == -50.0
+
+    def test_negative_expectancy(self):
+        trades = [
+            {"net_pnl": 10.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": -50.0, "total_commission": 0, "hold_duration_days": 1.0},
+            {"net_pnl": -30.0, "total_commission": 0, "hold_duration_days": 1.0},
+        ]
+        stats = compute_stats(trades)
+        assert stats["expectancy"] < 0
+
+    def test_single_win(self):
+        trades = [{"net_pnl": 100.0, "total_commission": 0, "hold_duration_days": 1.0}]
+        stats = compute_stats(trades)
+        # 100% win rate, avg_win=100, no losses
+        assert stats["expectancy"] == 100.0
+
+    def test_empty(self):
+        stats = compute_stats([])
+        assert stats["expectancy"] == 0.0
+
+
+class TestStreaks:
+    def test_mixed_sequence(self):
+        # W-W-L-W-W-W-L-L
+        trades = [
+            {"net_pnl": 10.0, "closed_at": "2026-01-01"},  # W
+            {"net_pnl": 20.0, "closed_at": "2026-01-02"},  # W
+            {"net_pnl": -5.0, "closed_at": "2026-01-03"},  # L
+            {"net_pnl": 15.0, "closed_at": "2026-01-04"},  # W
+            {"net_pnl": 25.0, "closed_at": "2026-01-05"},  # W
+            {"net_pnl": 30.0, "closed_at": "2026-01-06"},  # W
+            {"net_pnl": -10.0, "closed_at": "2026-01-07"}, # L
+            {"net_pnl": -8.0, "closed_at": "2026-01-08"},  # L
+        ]
+        result = compute_streaks(trades)
+        assert result["longest_win_streak"] == 3
+        assert result["longest_loss_streak"] == 2
+        assert result["current_streak_type"] == "loss"
+        assert result["current_streak_count"] == 2
+
+    def test_all_wins(self):
+        trades = [
+            {"net_pnl": 10.0, "closed_at": "2026-01-01"},
+            {"net_pnl": 20.0, "closed_at": "2026-01-02"},
+            {"net_pnl": 30.0, "closed_at": "2026-01-03"},
+        ]
+        result = compute_streaks(trades)
+        assert result["longest_win_streak"] == 3
+        assert result["longest_loss_streak"] == 0
+        assert result["current_streak_type"] == "win"
+        assert result["current_streak_count"] == 3
+
+    def test_empty(self):
+        result = compute_streaks([])
+        assert result["longest_win_streak"] == 0
+        assert result["longest_loss_streak"] == 0
+        assert result["current_streak_type"] is None
+
+    def test_single_trade(self):
+        result = compute_streaks([{"net_pnl": -5.0, "closed_at": "2026-01-01"}])
+        assert result["longest_loss_streak"] == 1
+        assert result["current_streak_type"] == "loss"
+
+
+class TestMaxDrawdown:
+    def test_mixed_sequence(self):
+        # W, L, L, L, W, L
+        trades = [
+            {"net_pnl": 50.0, "ticker": "A", "closed_at": "2026-01-01"},
+            {"net_pnl": -10.0, "ticker": "B", "closed_at": "2026-01-02"},
+            {"net_pnl": -20.0, "ticker": "C", "closed_at": "2026-01-03"},
+            {"net_pnl": -15.0, "ticker": "D", "closed_at": "2026-01-04"},
+            {"net_pnl": 30.0, "ticker": "E", "closed_at": "2026-01-05"},
+            {"net_pnl": -5.0, "ticker": "F", "closed_at": "2026-01-06"},
+        ]
+        result = compute_max_drawdown(trades)
+        assert result["max_drawdown"] == -45.0  # -10 + -20 + -15
+        assert result["max_drawdown_count"] == 3
+        assert result["max_drawdown_tickers"] == ["B", "C", "D"]
+
+    def test_all_wins(self):
+        trades = [
+            {"net_pnl": 10.0, "ticker": "A", "closed_at": "2026-01-01"},
+            {"net_pnl": 20.0, "ticker": "B", "closed_at": "2026-01-02"},
+        ]
+        result = compute_max_drawdown(trades)
+        assert result["max_drawdown"] == 0.0
+        assert result["max_drawdown_count"] == 0
+
+    def test_single_loss(self):
+        trades = [{"net_pnl": -25.0, "ticker": "X", "closed_at": "2026-01-01"}]
+        result = compute_max_drawdown(trades)
+        assert result["max_drawdown"] == -25.0
+        assert result["max_drawdown_count"] == 1
+        assert result["max_drawdown_tickers"] == ["X"]
+
+    def test_empty(self):
+        result = compute_max_drawdown([])
+        assert result["max_drawdown"] == 0.0
+
+
+class TestHoldingAnalysis:
+    def test_winners_vs_losers(self):
+        trades = [
+            {"net_pnl": 100.0, "hold_duration_days": 10.0},
+            {"net_pnl": 50.0, "hold_duration_days": 14.0},
+            {"net_pnl": -20.0, "hold_duration_days": 3.0},
+            {"net_pnl": -10.0, "hold_duration_days": 5.0},
+        ]
+        result = compute_holding_analysis(trades)
+        assert result["avg_hold_winners"] == 12.0  # (10+14)/2
+        assert result["avg_hold_losers"] == 4.0    # (3+5)/2
+
+    def test_no_hold_data(self):
+        trades = [
+            {"net_pnl": 100.0, "hold_duration_days": None},
+        ]
+        result = compute_holding_analysis(trades)
+        assert result["avg_hold_winners"] == 0.0
+        assert result["avg_hold_losers"] == 0.0
+
+    def test_only_winners(self):
+        trades = [
+            {"net_pnl": 100.0, "hold_duration_days": 7.0},
+        ]
+        result = compute_holding_analysis(trades)
+        assert result["avg_hold_winners"] == 7.0
+        assert result["avg_hold_losers"] == 0.0
+
+
+class TestInstrumentBreakdown:
+    def test_stock_and_option(self):
+        trades = [
+            {"net_pnl": 100.0, "total_commission": 5.0, "hold_duration_days": 3.0, "instrument": "stock"},
+            {"net_pnl": -20.0, "total_commission": 5.0, "hold_duration_days": 1.0, "instrument": "option"},
+            {"net_pnl": 50.0, "total_commission": 5.0, "hold_duration_days": 2.0, "instrument": "stock"},
+        ]
+        result = instrument_breakdown(trades)
+        assert len(result) == 2
+        instruments = {r["instrument"] for r in result}
+        assert instruments == {"stock", "option"}
+        stock = next(r for r in result if r["instrument"] == "stock")
+        assert stock["total_trades"] == 2
+        assert stock["total_pnl"] == 150.0
+
+    def test_single_instrument(self):
+        trades = [
+            {"net_pnl": 10.0, "total_commission": 0, "hold_duration_days": 1.0, "instrument": "stock"},
+        ]
+        result = instrument_breakdown(trades)
+        assert len(result) == 1
+
+    def test_default_instrument(self):
+        trades = [{"net_pnl": 10.0, "total_commission": 0, "hold_duration_days": 1.0}]
+        result = instrument_breakdown(trades)
+        assert result[0]["instrument"] == "stock"
+
+
+class TestMonthlyBreakdown:
+    def test_three_months(self):
+        trades = [
+            {"net_pnl": 10.0, "total_commission": 0, "hold_duration_days": 1.0, "closed_at": "2026-01-15T10:00:00"},
+            {"net_pnl": 20.0, "total_commission": 0, "hold_duration_days": 1.0, "closed_at": "2026-01-20T10:00:00"},
+            {"net_pnl": -5.0, "total_commission": 0, "hold_duration_days": 1.0, "closed_at": "2026-02-10T10:00:00"},
+            {"net_pnl": 30.0, "total_commission": 0, "hold_duration_days": 1.0, "closed_at": "2026-03-05T10:00:00"},
+        ]
+        result = monthly_breakdown(trades)
+        assert result["total_months"] == 3
+        assert result["profitable_months"] == 2  # Jan (+30) and Mar (+30), Feb (-5)
+        assert len(result["months"]) == 3
+        assert result["months"][0]["period"] == "2026-01"
+        assert result["months"][0]["total_pnl"] == 30.0
+
+    def test_single_month(self):
+        trades = [
+            {"net_pnl": 10.0, "total_commission": 0, "hold_duration_days": 1.0, "closed_at": "2026-01-15T10:00:00"},
+        ]
+        result = monthly_breakdown(trades)
+        assert result["total_months"] == 1
+        assert result["profitable_months"] == 1
+
+    def test_empty(self):
+        result = monthly_breakdown([])
+        assert result["total_months"] == 0
+        assert result["profitable_months"] == 0

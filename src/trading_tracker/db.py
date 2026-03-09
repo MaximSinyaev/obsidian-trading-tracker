@@ -116,7 +116,7 @@ def add_trade(
     # Auto-close: if this trade reduces an existing position, record it
     _auto_record_close(
         conn, ticker_upper, action_upper, shares, price,
-        commission, ts, trade_id, pos_before, strategy,
+        commission, ts, trade_id, pos_before, strategy, currency, instrument,
     )
 
     conn.commit()
@@ -134,6 +134,8 @@ def _auto_record_close(
     exit_trade_id: int,
     pos_before: dict[str, Any] | None,
     strategy: str | None = None,
+    currency: str = "USD",
+    instrument: str = "stock",
 ) -> None:
     """Create a closed_trades record if this trade reduces a position."""
     if pos_before is None:
@@ -182,8 +184,9 @@ def _auto_record_close(
         INSERT INTO closed_trades
             (ticker, direction, entry_trade_ids, exit_trade_ids, shares,
              avg_entry_price, avg_exit_price, entry_avg_cost, total_commission,
-             gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy,
+             currency, instrument)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             ticker,
@@ -200,6 +203,8 @@ def _auto_record_close(
             round(pnl_percent, 2),
             round(hold_days, 2) if hold_days is not None else None,
             strategy,
+            currency,
+            instrument,
         ),
     )
 
@@ -231,6 +236,7 @@ def edit_trade(
         "position_group",
         "asset_type",
         "instrument",
+        "currency",
         "leverage",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
@@ -296,9 +302,12 @@ def close_position(
     close_action = "SELL" if is_long else "BUY"
 
     # add_trade auto-creates closed_trades via _auto_record_close
+    currency = pos.get("currency", "USD")
+    instrument = pos.get("instrument", "stock")
     add_trade(
         conn, ticker, close_action, shares, exit_price,
-        commission=commission, strategy=strategy,
+        commission=commission, strategy=strategy, currency=currency,
+        instrument=instrument,
     )
 
     # Add review notes to the auto-created closed_trades record
@@ -415,6 +424,8 @@ def _compute_position_from_trades(trades: list[dict[str, Any]]) -> dict[str, Any
         "first_trade": first_ts,
         "last_trade": last_ts,
         "trade_count": count,
+        "currency": trades[0].get("currency", "USD"),
+        "instrument": trades[0].get("instrument", "stock"),
     }
 
 

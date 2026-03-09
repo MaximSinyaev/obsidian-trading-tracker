@@ -10,6 +10,7 @@ from rich.table import Table
 
 from trading_tracker import analytics, db, sync
 from trading_tracker.config import load_config
+from trading_tracker.models import currency_symbol
 
 app = typer.Typer(name="trade", help="Personal trading journal CLI.")
 db_app = typer.Typer(name="db", help="Database management commands.")
@@ -25,6 +26,12 @@ console = Console()
 def _get_conn():
     cfg = load_config()
     return db.init_db(cfg.db_path)
+
+
+def _fmt(amount: float, ccy: str = "USD") -> str:
+    """Format amount with currency symbol: '$1,234.56' or '₸9,092.00'."""
+    sym = currency_symbol(ccy)
+    return f"{sym}{amount:,.2f}"
 
 
 # ── db commands ──────────────────────────────────────────────────────────────
@@ -105,8 +112,9 @@ def add(
         currency=currency,
         leverage=leverage,
     )
+    sym = currency_symbol(currency)
     console.print(
-        f"[green]Trade #{trade_id}: {action.upper()} {shares} {ticker.upper()} @ ${price:.2f}[/green]"
+        f"[green]Trade #{trade_id}: {action.upper()} {shares} {ticker.upper()} @ {sym}{price:.2f}[/green]"
     )
 
     # Show auto-close info if position was reduced
@@ -124,10 +132,11 @@ def add(
             if ct:
                 dir_label = "SHORT" if ct["direction"] == "short" else "LONG"
                 color = "green" if ct["net_pnl"] >= 0 else "red"
+                ct_ccy = ct["currency"] if "currency" in ct.keys() else currency
                 console.print(
                     f"[{color}]  ↳ Closed {dir_label}: "
-                    f"${ct['avg_entry_price']:.2f} → ${ct['avg_exit_price']:.2f} | "
-                    f"P&L: ${ct['net_pnl']:.2f} ({ct['pnl_percent']:.1f}%)[/{color}]"
+                    f"{_fmt(ct['avg_entry_price'], ct_ccy)} → {_fmt(ct['avg_exit_price'], ct_ccy)} | "
+                    f"P&L: {_fmt(ct['net_pnl'], ct_ccy)} ({ct['pnl_percent']:.1f}%)[/{color}]"
                 )
                 pos_after = db.get_position(conn, ticker)
                 if pos_after is None:
@@ -135,7 +144,7 @@ def add(
                 else:
                     remaining = abs(pos_after["net_shares"])
                     console.print(
-                        f"  Remaining: {remaining:.2f} shares @ ${pos_after['avg_cost']:.2f}"
+                        f"  Remaining: {remaining:.2f} shares @ {_fmt(pos_after['avg_cost'], ct_ccy)}"
                     )
 
 
@@ -243,9 +252,10 @@ def delete(
         console.print(f"[red]Trade #{trade_id} not found.[/red]")
         raise typer.Exit(1)
 
+    trade_ccy = trade.get("currency", "USD")
     console.print(
         f"  Trade #{trade_id}: {trade['action']} {trade['shares']} {trade['ticker']} "
-        f"@ ${trade['price']:.2f} ({trade['timestamp'][:10]})"
+        f"@ {_fmt(trade['price'], trade_ccy)} ({trade['timestamp'][:10]})"
     )
     if not yes:
         confirm = typer.confirm("Delete this trade?")
@@ -292,8 +302,13 @@ def positions(
 
     has_prices = any(p.get("current_price") is not None for p in pos)
 
+    currencies_in_use = {p.get("currency", "USD") for p in pos}
+    show_ccy_col = len(currencies_in_use) > 1
+
     table = Table(title="Open Positions")
     table.add_column("Ticker", style="cyan bold")
+    if show_ccy_col:
+        table.add_column("CCY")
     table.add_column("Dir")
     table.add_column("Shares", justify="right")
     table.add_column("Avg Cost", justify="right")
@@ -314,16 +329,19 @@ def positions(
         net = p["net_shares"]
         is_long = net > 0
         abs_shares = abs(net)
+        ccy = p.get("currency", "USD")
         cost_basis = abs_shares * p["avg_cost"]
         total_cost += cost_basis
         dir_label = "[green]LONG[/green]" if is_long else "[red]SHORT[/red]"
-        row = [
-            p["ticker"],
+        row = [p["ticker"]]
+        if show_ccy_col:
+            row.append(ccy)
+        row.extend([
             dir_label,
             f"{abs_shares:.2f}",
-            f"${p['avg_cost']:.2f}",
-            f"${cost_basis:.2f}",
-        ]
+            _fmt(p["avg_cost"], ccy),
+            _fmt(cost_basis, ccy),
+        ])
         if has_prices:
             price = p.get("current_price")
             if price is not None:
@@ -334,9 +352,9 @@ def positions(
                 total_pnl += pnl
                 color = "green" if pnl >= 0 else "red"
                 row.extend([
-                    f"${price:.2f}",
-                    f"${mkt_val:.2f}",
-                    f"[{color}]${pnl:+.2f}[/{color}]",
+                    _fmt(price, ccy),
+                    _fmt(mkt_val, ccy),
+                    f"[{color}]{_fmt(pnl, ccy)}[/{color}]",
                     f"[{color}]{pnl_pct:+.1f}%[/{color}]",
                 ])
             else:
@@ -384,14 +402,15 @@ def history(
         table.add_column("Closed At")
 
         for t in trades:
+            ccy = t.get("currency", "USD")
             pnl_color = "green" if t["net_pnl"] >= 0 else "red"
             table.add_row(
                 str(t["id"]),
                 t["ticker"],
                 f"{t['shares']:.2f}",
-                f"${t['avg_entry_price']:.2f}",
-                f"${t['avg_exit_price']:.2f}",
-                f"[{pnl_color}]${t['net_pnl']:.2f}[/{pnl_color}]",
+                _fmt(t["avg_entry_price"], ccy),
+                _fmt(t["avg_exit_price"], ccy),
+                f"[{pnl_color}]{_fmt(t['net_pnl'], ccy)}[/{pnl_color}]",
                 f"[{pnl_color}]{t['pnl_percent']:.1f}%[/{pnl_color}]",
                 t["closed_at"][:10],
             )
@@ -407,14 +426,15 @@ def history(
         table.add_column("Time")
 
         for t in trades:
+            ccy = t.get("currency", "USD")
             action_color = "green" if t["action"] == "BUY" else "red"
             table.add_row(
                 str(t["id"]),
                 t["ticker"],
                 f"[{action_color}]{t['action']}[/{action_color}]",
                 f"{t['shares']:.2f}",
-                f"${t['price']:.2f}",
-                f"${t['commission']:.2f}",
+                _fmt(t["price"], ccy),
+                _fmt(t["commission"], ccy),
                 t.get("strategy") or "-",
                 t["timestamp"][:16],
             )
@@ -424,7 +444,8 @@ def history(
 @app.command()
 def stats():
     """Show trading statistics."""
-    conn = _get_conn()
+    cfg = load_config()
+    conn = db.init_db(cfg.db_path)
     closed = db.get_closed_trades(conn)
     overall = analytics.compute_stats(closed)
 
@@ -432,21 +453,125 @@ def stats():
         console.print("[yellow]No closed trades yet.[/yellow]")
         return
 
+    # Detect currencies in use
+    currencies_in_use = {t.get("currency", "USD") for t in closed}
+    multi_ccy = len(currencies_in_use) > 1
+
     table = Table(title="Trading Statistics")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right")
 
-    pnl_color = "green" if overall["total_pnl"] >= 0 else "red"
     table.add_row("Total Trades", str(overall["total_trades"]))
     table.add_row("Wins / Losses", f"{overall['wins']} / {overall['losses']}")
     table.add_row("Win Rate", f"{overall['win_rate']}%")
-    table.add_row("Total P&L", f"[{pnl_color}]${overall['total_pnl']:.2f}[/{pnl_color}]")
+
+    # Profit Factor
+    pf = overall.get("profit_factor")
+    if pf is not None:
+        pf_color = "green" if pf >= 1.5 else ("yellow" if pf >= 1.0 else "red")
+        table.add_row("Profit Factor", f"[{pf_color}]{pf:.2f}[/{pf_color}]")
+    else:
+        table.add_row("Profit Factor", "[green]inf (no losses)[/green]")
+
+    # Expectancy
+    exp = overall.get("expectancy", 0.0)
+    exp_color = "green" if exp >= 0 else "red"
+    table.add_row("Expectancy", f"[{exp_color}]${exp:+.2f} per trade[/{exp_color}]")
+
+    if multi_ccy:
+        base_ccy = cfg.fx.base_currency
+        # Per-currency P&L lines
+        ccy_stats = analytics.compute_stats_by_currency(closed, base_ccy)
+        for ccy, cstats in ccy_stats["by_currency"].items():
+            sym = currency_symbol(ccy)
+            color = "green" if cstats["total_pnl"] >= 0 else "red"
+            line = f"[{color}]{sym}{cstats['total_pnl']:+,.2f}[/{color}]"
+            if ccy != base_ccy and cstats["pnl_in_base"] is not None:
+                base_sym = currency_symbol(base_ccy)
+                line += f" ({base_sym}{cstats['pnl_in_base']:+,.2f})"
+            table.add_row(f"P&L {ccy}", line)
+        # Total line
+        total_color = "green" if ccy_stats["total_pnl_base"] >= 0 else "red"
+        base_sym = currency_symbol(base_ccy)
+        table.add_row(
+            f"Total P&L ({base_ccy})",
+            f"[{total_color}]{base_sym}{ccy_stats['total_pnl_base']:+,.2f}[/{total_color}]",
+        )
+    else:
+        ccy = next(iter(currencies_in_use))
+        pnl_color = "green" if overall["total_pnl"] >= 0 else "red"
+        table.add_row("Total P&L", f"[{pnl_color}]{_fmt(overall['total_pnl'], ccy)}[/{pnl_color}]")
+
     table.add_row("Avg P&L", f"${overall['avg_pnl']:.2f}")
     table.add_row("Best Trade", f"[green]${overall['best_trade']:.2f}[/green]")
     table.add_row("Worst Trade", f"[red]${overall['worst_trade']:.2f}[/red]")
     table.add_row("Total Commission", f"${overall['total_commission']:.2f}")
-    table.add_row("Avg Hold (days)", f"{overall['avg_hold_days']:.1f}")
+
+    # Holding analysis
+    holding = analytics.compute_holding_analysis(closed)
+    if holding["avg_hold_winners"] > 0 or holding["avg_hold_losers"] > 0:
+        table.add_row("Avg Hold (winners)", f"{holding['avg_hold_winners']:.1f} days")
+        table.add_row("Avg Hold (losers)", f"{holding['avg_hold_losers']:.1f} days")
+    else:
+        table.add_row("Avg Hold (days)", f"{overall['avg_hold_days']:.1f}")
+
     console.print(table)
+
+    # Max Drawdown + Streaks
+    dd = analytics.compute_max_drawdown(closed)
+    streaks = analytics.compute_streaks(closed)
+
+    if dd["max_drawdown_count"] > 0 or streaks["longest_win_streak"] > 0:
+        streak_table = Table(title="Drawdown & Streaks")
+        streak_table.add_column("Metric", style="cyan")
+        streak_table.add_column("Value", justify="right")
+
+        if dd["max_drawdown_count"] > 0:
+            tickers_str = ", ".join(dd["max_drawdown_tickers"][:5])
+            streak_table.add_row(
+                "Max Drawdown",
+                f"[red]${dd['max_drawdown']:.2f}[/red] ({dd['max_drawdown_count']} trades: {tickers_str})",
+            )
+
+        if streaks["longest_win_streak"] > 0:
+            streak_table.add_row(
+                "Win Streak",
+                f"[green]{streaks['longest_win_streak']} trades (+${streaks['longest_win_pnl']:.2f})[/green]",
+            )
+        if streaks["longest_loss_streak"] > 0:
+            streak_table.add_row(
+                "Loss Streak",
+                f"[red]{streaks['longest_loss_streak']} trades (${streaks['longest_loss_pnl']:.2f})[/red]",
+            )
+        if streaks["current_streak_type"]:
+            cur_color = "green" if streaks["current_streak_type"] == "win" else "red"
+            streak_table.add_row(
+                "Current",
+                f"[{cur_color}]{streaks['current_streak_count']} {streaks['current_streak_type']}s "
+                f"(${streaks['current_streak_pnl']:+.2f})[/{cur_color}]",
+            )
+        console.print(streak_table)
+
+    # Instrument breakdown
+    instr_breakdown = analytics.instrument_breakdown(closed)
+    if len(instr_breakdown) > 1:
+        instr_table = Table(title="By Instrument")
+        instr_table.add_column("Instrument", style="cyan")
+        instr_table.add_column("Trades", justify="right")
+        instr_table.add_column("Win Rate", justify="right")
+        instr_table.add_column("Total P&L", justify="right")
+        instr_table.add_column("Avg P&L", justify="right")
+
+        for s in instr_breakdown:
+            sc = "green" if s["total_pnl"] >= 0 else "red"
+            instr_table.add_row(
+                s["instrument"],
+                str(s["total_trades"]),
+                f"{s['win_rate']}%",
+                f"[{sc}]${s['total_pnl']:.2f}[/{sc}]",
+                f"${s['avg_pnl']:.2f}",
+            )
+        console.print(instr_table)
 
     # Strategy breakdown
     breakdown = analytics.strategy_breakdown(closed)
@@ -468,6 +593,30 @@ def stats():
                 f"${s['avg_pnl']:.2f}",
             )
         console.print(strat_table)
+
+    # Monthly breakdown
+    monthly = analytics.monthly_breakdown(closed)
+    if monthly["total_months"] > 0:
+        month_table = Table(title="By Month")
+        month_table.add_column("Period", style="cyan")
+        month_table.add_column("Trades", justify="right")
+        month_table.add_column("Win Rate", justify="right")
+        month_table.add_column("Total P&L", justify="right")
+
+        # Show last 6 months
+        for m in monthly["months"][-6:]:
+            mc = "green" if m["total_pnl"] >= 0 else "red"
+            month_table.add_row(
+                m["period"],
+                str(m["total_trades"]),
+                f"{m['win_rate']}%",
+                f"[{mc}]${m['total_pnl']:.2f}[/{mc}]",
+            )
+        console.print(month_table)
+        console.print(
+            f"  Profitable months: {monthly['profitable_months']}/{monthly['total_months']} "
+            f"({100 * monthly['profitable_months'] / monthly['total_months']:.0f}%)"
+        )
 
 
 # ── sync commands ────────────────────────────────────────────────────────────

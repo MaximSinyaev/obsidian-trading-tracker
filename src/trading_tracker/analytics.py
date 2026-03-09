@@ -65,6 +65,10 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
             "worst_trade": 0.0,
             "total_commission": 0.0,
             "avg_hold_days": 0.0,
+            "profit_factor": None,
+            "expectancy": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
         }
 
     pnls = [t["net_pnl"] for t in closed_trades]
@@ -77,17 +81,37 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
         if t.get("hold_duration_days") is not None
     ]
 
+    win_rate = round(100 * len(wins) / len(pnls), 1) if pnls else 0.0
+    avg_win = round(sum(wins) / len(wins), 2) if wins else 0.0
+    avg_loss = round(sum(losses) / len(losses), 2) if losses else 0.0
+
+    # Profit factor: gross wins / abs(gross losses)
+    total_wins = sum(wins)
+    total_losses = abs(sum(losses))
+    if total_losses > 0:
+        profit_factor = round(total_wins / total_losses, 2)
+    else:
+        profit_factor = None  # no losses = infinite
+
+    # Expectancy: (win_rate * avg_win) - (loss_rate * avg_loss)
+    wr = win_rate / 100
+    expectancy = round(wr * avg_win + (1 - wr) * avg_loss, 2)  # avg_loss is already negative
+
     return {
         "total_trades": len(pnls),
         "wins": len(wins),
         "losses": len(losses),
-        "win_rate": round(100 * len(wins) / len(pnls), 1) if pnls else 0.0,
+        "win_rate": win_rate,
         "total_pnl": round(sum(pnls), 2),
         "avg_pnl": round(sum(pnls) / len(pnls), 2) if pnls else 0.0,
         "best_trade": round(max(pnls), 2) if pnls else 0.0,
         "worst_trade": round(min(pnls), 2) if pnls else 0.0,
         "total_commission": round(sum(commissions), 2),
         "avg_hold_days": round(sum(hold_days) / len(hold_days), 1) if hold_days else 0.0,
+        "profit_factor": profit_factor,
+        "expectancy": expectancy,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
     }
 
 
@@ -275,6 +299,189 @@ def convert_amount(
     if rate is None:
         return None
     return round(amount * rate, 2)
+
+
+def compute_stats_by_currency(
+    closed_trades: list[dict[str, Any]],
+    base_currency: str = "USD",
+    rates: dict[tuple[str, str], float | None] | None = None,
+) -> dict[str, Any]:
+    """Compute stats grouped by currency with total in base currency.
+
+    Returns:
+        {
+            "by_currency": {ccy: stats_dict, ...},
+            "total_pnl_base": float,
+            "base_currency": str,
+            "currencies": [ccy, ...],
+        }
+    """
+    by_ccy: dict[str, list[dict[str, Any]]] = {}
+    for t in closed_trades:
+        ccy = t.get("currency", "USD")
+        by_ccy.setdefault(ccy, []).append(t)
+
+    result_by_ccy: dict[str, dict[str, Any]] = {}
+    total_pnl_base = 0.0
+
+    for ccy, trades in sorted(by_ccy.items()):
+        stats = compute_stats(trades)
+        stats["currency"] = ccy
+        # Convert P&L to base currency
+        if ccy == base_currency:
+            stats["pnl_in_base"] = stats["total_pnl"]
+        else:
+            converted = convert_amount(stats["total_pnl"], ccy, base_currency, rates)
+            stats["pnl_in_base"] = converted
+        if stats["pnl_in_base"] is not None:
+            total_pnl_base += stats["pnl_in_base"]
+        result_by_ccy[ccy] = stats
+
+    return {
+        "by_currency": result_by_ccy,
+        "total_pnl_base": round(total_pnl_base, 2),
+        "base_currency": base_currency,
+        "currencies": sorted(by_ccy.keys()),
+    }
+
+
+def compute_streaks(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute win/loss streaks from chronologically sorted trades."""
+    if not closed_trades:
+        return {
+            "longest_win_streak": 0, "longest_win_pnl": 0.0,
+            "longest_loss_streak": 0, "longest_loss_pnl": 0.0,
+            "current_streak_type": None, "current_streak_count": 0, "current_streak_pnl": 0.0,
+        }
+
+    sorted_trades = sorted(closed_trades, key=lambda t: t.get("closed_at", ""))
+    best_win = best_win_pnl = 0
+    best_loss = best_loss_pnl = 0
+    cur_type = None
+    cur_count = cur_pnl = 0
+
+    for t in sorted_trades:
+        is_win = t["net_pnl"] > 0
+        streak_type = "win" if is_win else "loss"
+
+        if streak_type == cur_type:
+            cur_count += 1
+            cur_pnl += t["net_pnl"]
+        else:
+            cur_type = streak_type
+            cur_count = 1
+            cur_pnl = t["net_pnl"]
+
+        if is_win and cur_count > best_win:
+            best_win = cur_count
+            best_win_pnl = cur_pnl
+        elif is_win and cur_count == best_win:
+            best_win_pnl = max(best_win_pnl, cur_pnl)
+
+        if not is_win and cur_count > best_loss:
+            best_loss = cur_count
+            best_loss_pnl = cur_pnl
+        elif not is_win and cur_count == best_loss:
+            best_loss_pnl = min(best_loss_pnl, cur_pnl)
+
+    return {
+        "longest_win_streak": best_win,
+        "longest_win_pnl": round(best_win_pnl, 2),
+        "longest_loss_streak": best_loss,
+        "longest_loss_pnl": round(best_loss_pnl, 2),
+        "current_streak_type": cur_type,
+        "current_streak_count": cur_count,
+        "current_streak_pnl": round(cur_pnl, 2),
+    }
+
+
+def compute_max_drawdown(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Find the worst consecutive losing streak (max drawdown by sequential losses)."""
+    if not closed_trades:
+        return {"max_drawdown": 0.0, "max_drawdown_count": 0, "max_drawdown_tickers": []}
+
+    sorted_trades = sorted(closed_trades, key=lambda t: t.get("closed_at", ""))
+    max_dd = 0.0
+    max_dd_count = 0
+    max_dd_tickers: list[str] = []
+    cur_dd = 0.0
+    cur_count = 0
+    cur_tickers: list[str] = []
+
+    for t in sorted_trades:
+        if t["net_pnl"] <= 0:
+            cur_dd += t["net_pnl"]
+            cur_count += 1
+            cur_tickers.append(t["ticker"])
+            if cur_dd < max_dd:
+                max_dd = cur_dd
+                max_dd_count = cur_count
+                max_dd_tickers = list(cur_tickers)
+        else:
+            cur_dd = 0.0
+            cur_count = 0
+            cur_tickers = []
+
+    return {
+        "max_drawdown": round(max_dd, 2),
+        "max_drawdown_count": max_dd_count,
+        "max_drawdown_tickers": max_dd_tickers,
+    }
+
+
+def compute_holding_analysis(closed_trades: list[dict[str, Any]]) -> dict[str, float]:
+    """Average holding period for winners vs losers."""
+    win_days = [
+        t["hold_duration_days"] for t in closed_trades
+        if t["net_pnl"] > 0 and t.get("hold_duration_days") is not None
+    ]
+    loss_days = [
+        t["hold_duration_days"] for t in closed_trades
+        if t["net_pnl"] <= 0 and t.get("hold_duration_days") is not None
+    ]
+    return {
+        "avg_hold_winners": round(sum(win_days) / len(win_days), 1) if win_days else 0.0,
+        "avg_hold_losers": round(sum(loss_days) / len(loss_days), 1) if loss_days else 0.0,
+    }
+
+
+def instrument_breakdown(closed_trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Break down stats by instrument (stock, option, etc.)."""
+    by_instrument: dict[str, list[dict[str, Any]]] = {}
+    for t in closed_trades:
+        key = t.get("instrument") or "stock"
+        by_instrument.setdefault(key, []).append(t)
+
+    results = []
+    for instr, trades in sorted(by_instrument.items()):
+        stats = compute_stats(trades)
+        stats["instrument"] = instr
+        results.append(stats)
+    return results
+
+
+def monthly_breakdown(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Break down stats by month (YYYY-MM from closed_at)."""
+    by_month: dict[str, list[dict[str, Any]]] = {}
+    for t in closed_trades:
+        period = t.get("closed_at", "")[:7]  # YYYY-MM
+        if period:
+            by_month.setdefault(period, []).append(t)
+
+    months = []
+    profitable = 0
+    for period, trades in sorted(by_month.items()):
+        stats = compute_stats(trades)
+        stats["period"] = period
+        months.append(stats)
+        if stats["total_pnl"] > 0:
+            profitable += 1
+
+    return {
+        "months": months,
+        "profitable_months": profitable,
+        "total_months": len(months),
+    }
 
 
 def strategy_breakdown(closed_trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
