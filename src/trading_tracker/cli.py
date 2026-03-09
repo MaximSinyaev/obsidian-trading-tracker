@@ -8,11 +8,21 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from importlib.metadata import version as pkg_version
+
 from trading_tracker import analytics, db, sync
 from trading_tracker.config import load_config
 from trading_tracker.models import currency_symbol
 
-app = typer.Typer(name="trade", help="Personal trading journal CLI.")
+
+def _version_callback(value: bool):
+    if value:
+        v = pkg_version("obsidian-trading-tracker")
+        print(f"trade {v}")
+        raise typer.Exit()
+
+
+app = typer.Typer(name="trade")
 db_app = typer.Typer(name="db", help="Database management commands.")
 sync_app = typer.Typer(name="sync", help="Obsidian sync commands.")
 fx_app = typer.Typer(name="fx", help="Currency exchange rates.")
@@ -21,6 +31,15 @@ app.add_typer(sync_app)
 app.add_typer(fx_app)
 
 console = Console()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        Optional[bool], typer.Option("--version", "-v", callback=_version_callback, is_eager=True)
+    ] = None,
+):
+    """Personal trading journal CLI."""
 
 
 def _get_conn():
@@ -32,6 +51,38 @@ def _fmt(amount: float, ccy: str = "USD") -> str:
     """Format amount with currency symbol: '$1,234.56' or '₸9,092.00'."""
     sym = currency_symbol(ccy)
     return f"{sym}{amount:,.2f}"
+
+
+def _print_streaks_table(dd, streaks, ccy, title="Drawdown & Streaks"):
+    """Print a formatted drawdown & streaks table."""
+    streak_table = Table(title=title)
+    streak_table.add_column("Metric", style="cyan")
+    streak_table.add_column("Value", justify="right")
+
+    if dd["max_drawdown_count"] > 0:
+        tickers_str = ", ".join(dd["max_drawdown_tickers"][:5])
+        streak_table.add_row(
+            "Max Drawdown",
+            f"[red]{_fmt(dd['max_drawdown'], ccy)}[/red] ({dd['max_drawdown_count']} trades: {tickers_str})",
+        )
+    if streaks["longest_win_streak"] > 0:
+        streak_table.add_row(
+            "Win Streak",
+            f"[green]{streaks['longest_win_streak']} trades (+{_fmt(streaks['longest_win_pnl'], ccy)})[/green]",
+        )
+    if streaks["longest_loss_streak"] > 0:
+        streak_table.add_row(
+            "Loss Streak",
+            f"[red]{streaks['longest_loss_streak']} trades ({_fmt(streaks['longest_loss_pnl'], ccy)})[/red]",
+        )
+    if streaks["current_streak_type"]:
+        cur_color = "green" if streaks["current_streak_type"] == "win" else "red"
+        streak_table.add_row(
+            "Current",
+            f"[{cur_color}]{streaks['current_streak_count']} {streaks['current_streak_type']}s "
+            f"({_fmt(streaks['current_streak_pnl'], ccy)})[/{cur_color}]",
+        )
+    console.print(streak_table)
 
 
 # ── db commands ──────────────────────────────────────────────────────────────
@@ -456,6 +507,7 @@ def stats():
     # Detect currencies in use
     currencies_in_use = {t.get("currency", "USD") for t in closed}
     multi_ccy = len(currencies_in_use) > 1
+    single_ccy = next(iter(currencies_in_use)) if not multi_ccy else None
 
     table = Table(title="Trading Statistics")
     table.add_column("Metric", style="cyan")
@@ -465,47 +517,59 @@ def stats():
     table.add_row("Wins / Losses", f"{overall['wins']} / {overall['losses']}")
     table.add_row("Win Rate", f"{overall['win_rate']}%")
 
-    # Profit Factor
-    pf = overall.get("profit_factor")
-    if pf is not None:
-        pf_color = "green" if pf >= 1.5 else ("yellow" if pf >= 1.0 else "red")
-        table.add_row("Profit Factor", f"[{pf_color}]{pf:.2f}[/{pf_color}]")
-    else:
-        table.add_row("Profit Factor", "[green]inf (no losses)[/green]")
-
-    # Expectancy
-    exp = overall.get("expectancy", 0.0)
-    exp_color = "green" if exp >= 0 else "red"
-    table.add_row("Expectancy", f"[{exp_color}]${exp:+.2f} per trade[/{exp_color}]")
-
     if multi_ccy:
         base_ccy = cfg.fx.base_currency
-        # Per-currency P&L lines
         ccy_stats = analytics.compute_stats_by_currency(closed, base_ccy)
-        for ccy, cstats in ccy_stats["by_currency"].items():
-            sym = currency_symbol(ccy)
-            color = "green" if cstats["total_pnl"] >= 0 else "red"
-            line = f"[{color}]{sym}{cstats['total_pnl']:+,.2f}[/{color}]"
-            if ccy != base_ccy and cstats["pnl_in_base"] is not None:
+
+        for ccy, cs in ccy_stats["by_currency"].items():
+            pf = cs.get("profit_factor")
+            if pf is not None:
+                pf_color = "green" if pf >= 1.5 else ("yellow" if pf >= 1.0 else "red")
+                table.add_row(f"Profit Factor ({ccy})", f"[{pf_color}]{pf:.2f}[/{pf_color}]")
+            else:
+                table.add_row(f"Profit Factor ({ccy})", "[green]inf[/green]")
+
+            exp = cs.get("expectancy", 0.0)
+            ec = "green" if exp >= 0 else "red"
+            table.add_row(f"Expectancy ({ccy})", f"[{ec}]{_fmt(exp, ccy)} per trade[/{ec}]")
+
+        for ccy, cs in ccy_stats["by_currency"].items():
+            color = "green" if cs["total_pnl"] >= 0 else "red"
+            line = f"[{color}]{_fmt(cs['total_pnl'], ccy)}[/{color}]"
+            if ccy != base_ccy and cs["pnl_in_base"] is not None:
                 base_sym = currency_symbol(base_ccy)
-                line += f" ({base_sym}{cstats['pnl_in_base']:+,.2f})"
-            table.add_row(f"P&L {ccy}", line)
-        # Total line
+                line += f" ({base_sym}{cs['pnl_in_base']:+,.2f})"
+            table.add_row(f"P&L ({ccy})", line)
         total_color = "green" if ccy_stats["total_pnl_base"] >= 0 else "red"
-        base_sym = currency_symbol(base_ccy)
         table.add_row(
             f"Total P&L ({base_ccy})",
-            f"[{total_color}]{base_sym}{ccy_stats['total_pnl_base']:+,.2f}[/{total_color}]",
+            f"[{total_color}]{_fmt(ccy_stats['total_pnl_base'], base_ccy)}[/{total_color}]",
         )
+
+        for ccy, cs in ccy_stats["by_currency"].items():
+            table.add_row(f"Avg P&L ({ccy})", _fmt(cs["avg_pnl"], ccy))
+            table.add_row(f"Best Trade ({ccy})", f"[green]{_fmt(cs['best_trade'], ccy)}[/green]")
+            table.add_row(f"Worst Trade ({ccy})", f"[red]{_fmt(cs['worst_trade'], ccy)}[/red]")
+            table.add_row(f"Commission ({ccy})", _fmt(cs["total_commission"], ccy))
     else:
-        ccy = next(iter(currencies_in_use))
+        ccy = single_ccy
+        pf = overall.get("profit_factor")
+        if pf is not None:
+            pf_color = "green" if pf >= 1.5 else ("yellow" if pf >= 1.0 else "red")
+            table.add_row("Profit Factor", f"[{pf_color}]{pf:.2f}[/{pf_color}]")
+        else:
+            table.add_row("Profit Factor", "[green]inf (no losses)[/green]")
+
+        exp = overall.get("expectancy", 0.0)
+        exp_color = "green" if exp >= 0 else "red"
+        table.add_row("Expectancy", f"[{exp_color}]{_fmt(exp, ccy)} per trade[/{exp_color}]")
+
         pnl_color = "green" if overall["total_pnl"] >= 0 else "red"
         table.add_row("Total P&L", f"[{pnl_color}]{_fmt(overall['total_pnl'], ccy)}[/{pnl_color}]")
-
-    table.add_row("Avg P&L", f"${overall['avg_pnl']:.2f}")
-    table.add_row("Best Trade", f"[green]${overall['best_trade']:.2f}[/green]")
-    table.add_row("Worst Trade", f"[red]${overall['worst_trade']:.2f}[/red]")
-    table.add_row("Total Commission", f"${overall['total_commission']:.2f}")
+        table.add_row("Avg P&L", _fmt(overall["avg_pnl"], ccy))
+        table.add_row("Best Trade", f"[green]{_fmt(overall['best_trade'], ccy)}[/green]")
+        table.add_row("Worst Trade", f"[red]{_fmt(overall['worst_trade'], ccy)}[/red]")
+        table.add_row("Total Commission", _fmt(overall["total_commission"], ccy))
 
     # Holding analysis
     holding = analytics.compute_holding_analysis(closed)
@@ -517,40 +581,19 @@ def stats():
 
     console.print(table)
 
-    # Max Drawdown + Streaks
-    dd = analytics.compute_max_drawdown(closed)
-    streaks = analytics.compute_streaks(closed)
-
-    if dd["max_drawdown_count"] > 0 or streaks["longest_win_streak"] > 0:
-        streak_table = Table(title="Drawdown & Streaks")
-        streak_table.add_column("Metric", style="cyan")
-        streak_table.add_column("Value", justify="right")
-
-        if dd["max_drawdown_count"] > 0:
-            tickers_str = ", ".join(dd["max_drawdown_tickers"][:5])
-            streak_table.add_row(
-                "Max Drawdown",
-                f"[red]${dd['max_drawdown']:.2f}[/red] ({dd['max_drawdown_count']} trades: {tickers_str})",
-            )
-
-        if streaks["longest_win_streak"] > 0:
-            streak_table.add_row(
-                "Win Streak",
-                f"[green]{streaks['longest_win_streak']} trades (+${streaks['longest_win_pnl']:.2f})[/green]",
-            )
-        if streaks["longest_loss_streak"] > 0:
-            streak_table.add_row(
-                "Loss Streak",
-                f"[red]{streaks['longest_loss_streak']} trades (${streaks['longest_loss_pnl']:.2f})[/red]",
-            )
-        if streaks["current_streak_type"]:
-            cur_color = "green" if streaks["current_streak_type"] == "win" else "red"
-            streak_table.add_row(
-                "Current",
-                f"[{cur_color}]{streaks['current_streak_count']} {streaks['current_streak_type']}s "
-                f"(${streaks['current_streak_pnl']:+.2f})[/{cur_color}]",
-            )
-        console.print(streak_table)
+    # Drawdown & Streaks — per-currency when multi_ccy to avoid mixing
+    if multi_ccy:
+        for sccy in sorted(currencies_in_use):
+            ccy_closed = [t for t in closed if t.get("currency", "USD") == sccy]
+            dd = analytics.compute_max_drawdown(ccy_closed)
+            streaks = analytics.compute_streaks(ccy_closed)
+            if dd["max_drawdown_count"] > 0 or streaks["longest_win_streak"] > 0:
+                _print_streaks_table(dd, streaks, sccy, f"Drawdown & Streaks ({sccy})")
+    else:
+        dd = analytics.compute_max_drawdown(closed)
+        streaks = analytics.compute_streaks(closed)
+        if dd["max_drawdown_count"] > 0 or streaks["longest_win_streak"] > 0:
+            _print_streaks_table(dd, streaks, single_ccy)
 
     # Instrument breakdown
     instr_breakdown = analytics.instrument_breakdown(closed)
@@ -559,18 +602,19 @@ def stats():
         instr_table.add_column("Instrument", style="cyan")
         instr_table.add_column("Trades", justify="right")
         instr_table.add_column("Win Rate", justify="right")
-        instr_table.add_column("Total P&L", justify="right")
-        instr_table.add_column("Avg P&L", justify="right")
+        if not multi_ccy:
+            instr_table.add_column("Total P&L", justify="right")
+            instr_table.add_column("Avg P&L", justify="right")
 
         for s in instr_breakdown:
-            sc = "green" if s["total_pnl"] >= 0 else "red"
-            instr_table.add_row(
-                s["instrument"],
-                str(s["total_trades"]),
-                f"{s['win_rate']}%",
-                f"[{sc}]${s['total_pnl']:.2f}[/{sc}]",
-                f"${s['avg_pnl']:.2f}",
-            )
+            row = [s["instrument"], str(s["total_trades"]), f"{s['win_rate']}%"]
+            if not multi_ccy:
+                sc = "green" if s["total_pnl"] >= 0 else "red"
+                row.extend([
+                    f"[{sc}]{_fmt(s['total_pnl'], single_ccy)}[/{sc}]",
+                    _fmt(s["avg_pnl"], single_ccy),
+                ])
+            instr_table.add_row(*row)
         console.print(instr_table)
 
     # Strategy breakdown
@@ -580,18 +624,19 @@ def stats():
         strat_table.add_column("Strategy", style="cyan")
         strat_table.add_column("Trades", justify="right")
         strat_table.add_column("Win Rate", justify="right")
-        strat_table.add_column("Total P&L", justify="right")
-        strat_table.add_column("Avg P&L", justify="right")
+        if not multi_ccy:
+            strat_table.add_column("Total P&L", justify="right")
+            strat_table.add_column("Avg P&L", justify="right")
 
         for s in breakdown:
-            sc = "green" if s["total_pnl"] >= 0 else "red"
-            strat_table.add_row(
-                s["strategy"],
-                str(s["total_trades"]),
-                f"{s['win_rate']}%",
-                f"[{sc}]${s['total_pnl']:.2f}[/{sc}]",
-                f"${s['avg_pnl']:.2f}",
-            )
+            row = [s["strategy"], str(s["total_trades"]), f"{s['win_rate']}%"]
+            if not multi_ccy:
+                sc = "green" if s["total_pnl"] >= 0 else "red"
+                row.extend([
+                    f"[{sc}]{_fmt(s['total_pnl'], single_ccy)}[/{sc}]",
+                    _fmt(s["avg_pnl"], single_ccy),
+                ])
+            strat_table.add_row(*row)
         console.print(strat_table)
 
     # Monthly breakdown
@@ -601,17 +646,16 @@ def stats():
         month_table.add_column("Period", style="cyan")
         month_table.add_column("Trades", justify="right")
         month_table.add_column("Win Rate", justify="right")
-        month_table.add_column("Total P&L", justify="right")
+        if not multi_ccy:
+            month_table.add_column("Total P&L", justify="right")
 
         # Show last 6 months
         for m in monthly["months"][-6:]:
-            mc = "green" if m["total_pnl"] >= 0 else "red"
-            month_table.add_row(
-                m["period"],
-                str(m["total_trades"]),
-                f"{m['win_rate']}%",
-                f"[{mc}]${m['total_pnl']:.2f}[/{mc}]",
-            )
+            row = [m["period"], str(m["total_trades"]), f"{m['win_rate']}%"]
+            if not multi_ccy:
+                mc = "green" if m["total_pnl"] >= 0 else "red"
+                row.append(f"[{mc}]{_fmt(m['total_pnl'], single_ccy)}[/{mc}]")
+            month_table.add_row(*row)
         console.print(month_table)
         console.print(
             f"  Profitable months: {monthly['profitable_months']}/{monthly['total_months']} "
