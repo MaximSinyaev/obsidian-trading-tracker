@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_DIR = Path(__file__).resolve().parent.parent.parent / "schema"
+SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
 
 
 def get_connection(db_path: str | Path) -> sqlite3.Connection:
