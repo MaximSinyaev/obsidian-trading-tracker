@@ -519,7 +519,10 @@ def stats():
 
     if multi_ccy:
         base_ccy = cfg.fx.base_currency
-        ccy_stats = analytics.compute_stats_by_currency(closed, base_ccy)
+        # Pre-fetch all FX rates in one batch to avoid sequential requests
+        other_ccys = sorted(currencies_in_use - {base_ccy})
+        rates = analytics.fetch_fx_matrix([base_ccy] + other_ccys) if other_ccys else None
+        ccy_stats = analytics.compute_stats_by_currency(closed, base_ccy, rates=rates)
 
         for ccy, cs in ccy_stats["by_currency"].items():
             pf = cs.get("profit_factor")

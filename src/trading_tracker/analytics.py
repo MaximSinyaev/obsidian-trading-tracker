@@ -115,34 +115,69 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _is_yf_supported(ticker: str) -> bool:
+    """Check if a ticker is likely supported by Yahoo Finance.
+
+    Filters out Kazakh (.KZ) tickers and other non-standard symbols
+    that cause yfinance to hang waiting for a 404 response.
+    """
+    # Options with our naming convention (e.g. XLU-C78-MAR25)
+    if "-C" in ticker or "-P" in ticker:
+        return False
+    # Known non-Yahoo suffixes / patterns
+    upper = ticker.upper()
+    # KASE tickers (Kazakhstan) — not on Yahoo
+    kase_tickers = {"HSBK", "ASBN", "KCEL", "KMGZ", "KEGC", "KZAP", "SRTS"}
+    if upper in kase_tickers:
+        return False
+    return True
+
+
 def fetch_live_prices(tickers: list[str]) -> dict[str, float | None]:
     """Fetch current prices for a list of tickers via yfinance.
 
     Returns a dict of ticker -> price. Missing/failed tickers get None.
+    Skips tickers unlikely to be found on Yahoo Finance to avoid timeouts.
     """
     if not tickers:
         return {}
-    import yfinance as yf
 
     result: dict[str, float | None] = {}
+    yf_tickers = [t for t in tickers if _is_yf_supported(t)]
+    skipped = [t for t in tickers if not _is_yf_supported(t)]
+    for t in skipped:
+        result[t] = None
+
+    if not yf_tickers:
+        return result
+
+    import logging
+    import yfinance as yf
+
     try:
-        data = yf.download(tickers, period="1d", progress=False, threads=True)
+        logging.disable(logging.CRITICAL)
+        data = yf.download(yf_tickers, period="1d", progress=False, threads=True, timeout=10)
+        logging.disable(logging.NOTSET)
         if data.empty:
-            return {t: None for t in tickers}
+            for t in yf_tickers:
+                result[t] = None
+            return result
         close = data["Close"]
-        if len(tickers) == 1:
+        if len(yf_tickers) == 1:
             # yf.download returns a Series for single ticker
             last = close.dropna().iloc[-1] if not close.dropna().empty else None
-            result[tickers[0]] = round(float(last), 2) if last is not None else None
+            result[yf_tickers[0]] = round(float(last), 2) if last is not None else None
         else:
-            for t in tickers:
+            for t in yf_tickers:
                 if t in close.columns:
                     col = close[t].dropna()
                     result[t] = round(float(col.iloc[-1]), 2) if not col.empty else None
                 else:
                     result[t] = None
     except Exception:
-        return {t: None for t in tickers}
+        logging.disable(logging.NOTSET)
+        for t in yf_tickers:
+            result[t] = None
     # Fill any missing
     for t in tickers:
         if t not in result:
