@@ -1,6 +1,6 @@
 [project]
 name = "obsidian-trading-tracker"
-version = "0.5.0"
+version = "0.5.2"
 description = "Personal trading journal with Obsidian integration"
 readme = "README.md"
 license = "MIT"

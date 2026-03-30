@@ -115,69 +115,73 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _is_yf_supported(ticker: str) -> bool:
-    """Check if a ticker is likely supported by Yahoo Finance.
+def _to_yf_symbol(ticker: str) -> str | None:
+    """Map an internal ticker to its Yahoo Finance symbol.
 
-    Filters out Kazakh (.KZ) tickers and other non-standard symbols
-    that cause yfinance to hang waiting for a 404 response.
+    Returns the Yahoo symbol or None if the ticker is not available on Yahoo.
     """
     # Options with our naming convention (e.g. XLU-C78-MAR25)
     if "-C" in ticker or "-P" in ticker:
-        return False
-    # Known non-Yahoo suffixes / patterns
+        return None
     upper = ticker.upper()
-    # KASE tickers (Kazakhstan) — not on Yahoo
-    kase_tickers = {"HSBK", "ASBN", "KCEL", "KMGZ", "KEGC", "KZAP", "SRTS"}
-    if upper in kase_tickers:
-        return False
-    return True
+    # KASE tickers (Kazakhstan) — not on Yahoo Finance
+    if upper.endswith(".KZ"):
+        return None
+    # US-listed tickers with our .US suffix — strip it for Yahoo
+    if upper.endswith(".US"):
+        return ticker[:-3]
+    return ticker
+
+
+def _fetch_single_price(ticker: str, yf_symbol: str) -> tuple[str, float | None]:
+    """Fetch price for a single ticker. Returns (ticker, price) tuple."""
+    import logging
+    import yfinance as yf
+
+    try:
+        logging.disable(logging.CRITICAL)
+        data = yf.download(yf_symbol, period="1d", progress=False, timeout=10)
+        logging.disable(logging.NOTSET)
+        val = _extract_close(data, yf_symbol)
+        return (ticker, round(val, 2) if val is not None else None)
+    except Exception:
+        logging.disable(logging.NOTSET)
+        return (ticker, None)
 
 
 def fetch_live_prices(tickers: list[str]) -> dict[str, float | None]:
     """Fetch current prices for a list of tickers via yfinance.
 
     Returns a dict of ticker -> price. Missing/failed tickers get None.
-    Skips tickers unlikely to be found on Yahoo Finance to avoid timeouts.
+    Fetches each ticker in parallel so one slow/failed ticker doesn't block others.
     """
     if not tickers:
         return {}
 
-    result: dict[str, float | None] = {}
-    yf_tickers = [t for t in tickers if _is_yf_supported(t)]
-    skipped = [t for t in tickers if not _is_yf_supported(t)]
-    for t in skipped:
-        result[t] = None
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    if not yf_tickers:
+    result: dict[str, float | None] = {}
+    # Build mapping: internal ticker -> yahoo symbol (or None if unsupported)
+    ticker_map: dict[str, str] = {}
+    for t in tickers:
+        yf_sym = _to_yf_symbol(t)
+        if yf_sym is None:
+            result[t] = None
+        else:
+            ticker_map[t] = yf_sym
+
+    if not ticker_map:
         return result
 
-    import logging
-    import yfinance as yf
+    with ThreadPoolExecutor(max_workers=min(len(ticker_map), 8)) as pool:
+        futures = {
+            pool.submit(_fetch_single_price, t, sym): t
+            for t, sym in ticker_map.items()
+        }
+        for future in as_completed(futures):
+            t, price = future.result()
+            result[t] = price
 
-    try:
-        logging.disable(logging.CRITICAL)
-        data = yf.download(yf_tickers, period="1d", progress=False, threads=True, timeout=10)
-        logging.disable(logging.NOTSET)
-        if data.empty:
-            for t in yf_tickers:
-                result[t] = None
-            return result
-        close = data["Close"]
-        if len(yf_tickers) == 1:
-            # yf.download returns a Series for single ticker
-            last = close.dropna().iloc[-1] if not close.dropna().empty else None
-            result[yf_tickers[0]] = round(float(last), 2) if last is not None else None
-        else:
-            for t in yf_tickers:
-                if t in close.columns:
-                    col = close[t].dropna()
-                    result[t] = round(float(col.iloc[-1]), 2) if not col.empty else None
-                else:
-                    result[t] = None
-    except Exception:
-        logging.disable(logging.NOTSET)
-        for t in yf_tickers:
-            result[t] = None
     # Fill any missing
     for t in tickers:
         if t not in result:
