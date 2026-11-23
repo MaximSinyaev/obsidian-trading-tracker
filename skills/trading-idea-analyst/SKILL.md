@@ -26,6 +26,7 @@ confirmation dressed up as research.
 | "Give me ideas", "what's interesting this week", "market outlook" | **Full scan** | 1 → 6 |
 | "What do you think about X / theme Y?" | **Thesis check** | 1 (short), 3 → 6 for that one idea |
 | "Should I keep holding X?" | **Position review** | Stop question first, then `references/position-review.md` |
+| "Check my portfolio", "where should this month's contribution go?" (long-term / DCA investor) | **Portfolio review** | `references/position-review.md` → Long-term portfolio |
 | "How did your ideas do?" | **Scorecard** | `references/journal-handoff.md` → Scoring: paper idea quality and real execution, reported separately, every idea counted |
 
 ## The pipeline (full scan)
@@ -130,19 +131,37 @@ These are process rules. The user can override the numbers in `sources.toml`
 3. **Event / headline risk.** For geopolitical, commodity, or single-event
    ideas, ask "What if a key decision-maker says the opposite tomorrow?" and
    apply the event size factor (default 0.5× the user's normal size) and an
-   event time stop (default 3 trading days unless hedged).
+   event time stop (default 3 trading days unless hedged; calendar days for
+   markets that trade 24/7, such as crypto).
 4. **Leveraged and inverse ETFs.** Size factor default 0.4×, hard time stop
-   default 5 trading days for 3× products, and state the decay. Never the
-   default variant.
+   default 5 trading days for 3× products (calendar days for 24/7 markets,
+   including leveraged crypto perpetuals, where funding replaces decay), and
+   state the decay or funding cost. Never the default variant.
 5. **Binary events** (CPI, central bank decisions, earnings) inside the idea's
    horizon must be listed with date and time in the user's timezone, plus the
    plan for each outcome.
 6. **Concentration.** Flag if an idea pushes any ticker above the user's max
-   per-ticker share (default 30%) or adds a third correlated position.
+   per-ticker share (default 30%) or adds a third correlated position. The
+   journal does not sum across currencies, so compute the share either within
+   one currency (each position in `trade --json positions` carries its
+   `currency`; `trade --json report` groups by `by_currency`) or by
+   converting every currency to `[user].base_currency` with
+   `trade --json fx rate <CCY> <BASE>` and stating the rates and their time.
+   Say which method you used.
 7. **Broken thesis = exit.** When an exit trigger fires, the default view is to
    exit, not to wait for a bounce. Record it as a lesson in the journal.
 8. **P&L from the journal only.** Never compute the user's P&L by hand; read
    it from `trade --json history` / `trade --json report`.
+9. **Stop on the right side.** A long's stop is below the reference price, a
+   short's above it; targets on the opposite side. Check this before writing
+   any idea or trade, because the journal accepts either.
+10. **Options** (only if allowed in `instruments_allowed`): state whether the
+   stop is on the premium or on the underlying, and the maximum loss (premium
+   paid for long options; for short puts strike × multiplier − premium, for
+   short calls unlimited unless covered or spread). Expiry is the hard time
+   stop. Flag assignment / early-exercise risk around ex-dividend dates and
+   expiry, and prefer defined-risk structures. Record with
+   `--instrument option --multiplier 100` (or the contract's multiplier).
 
 ## Tags
 

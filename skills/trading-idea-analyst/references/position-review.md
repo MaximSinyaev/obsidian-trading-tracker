@@ -24,3 +24,20 @@ Use when the user asks whether to hold, add to, or close an existing position.
 8. **Record** the review: `trade --json journal add "<review>" --ticker T
    --kind review --tags <idea id>,ai-idea`. If the thesis broke, also add a
    `--kind lesson` entry.
+
+## Long-term portfolio (DCA / periodic contributions)
+
+For investors who add money on a schedule rather than trade ideas:
+
+1. Read holdings with `trade --json positions` (grouped by currency) and the
+   journal's `plan` entries for the stated target allocation. If there is no
+   target allocation, ask for it and record it as a `--kind plan` entry.
+2. Compare current weights with the targets (same currency method as risk
+   rule 6, and say which one you used).
+3. Run a short macro scan limited to what affects the holdings (rates,
+   valuations, currency) and check each holding's original thesis as in the
+   steps above. A long-term holding still needs an invalidation condition,
+   even if it is not a price stop.
+4. Suggest where the contribution goes as a rebalancing rule ("underweight
+   bucket first"), not as a market call, and record the review with
+   `--kind review`.
