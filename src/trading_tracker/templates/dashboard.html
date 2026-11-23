@@ -46,6 +46,9 @@ h2 { font-size: 15px; margin: 0 0 12px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
 .kpi .label { color: var(--muted); font-size: 12px; }
 .kpi .value { font-size: 22px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi .value span { white-space: nowrap; }
+@media (max-width: 480px) { .kpi .value { font-size: 18px; } .kpi { padding: 12px; } td, th { white-space: nowrap; } }
+#theme { font-size: 13px; }
 .kpi .note { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .pos { color: var(--pos); } .neg { color: var(--neg); }
 .warn { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
@@ -83,7 +86,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     <span class="sub" id="meta"></span>
     <span class="spacer"></span>
     <span class="seg" id="ccy"></span>
-    <span class="seg"><button id="theme" title="Toggle theme">◐</button></span>
+    <span class="seg"><button id="theme" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">Theme</button></span>
   </header>
   <div id="warnings"></div>
   <section class="grid kpis" id="kpis"></section>
@@ -183,7 +186,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     let dd = `M${xs(0)},${dy(0)} ` + pts.map((p, i) => `L${xs(i)},${dy(p.drawdown)}`).join(" ") + ` L${xs(pts.length - 1)},${dy(0)} Z`;
     const last = eq[eq.length - 1];
     const col = last >= 0 ? "var(--pos)" : "var(--neg)";
-    const ticks = [lo, (lo + hi) / 2, hi].map((v) => `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${P.l - 6}" y="${ys(v) + 4}" text-anchor="end">${money(Math.round(v))}</text>`).join("");
+    const ticks = [...new Set([lo, (lo + hi) / 2, hi].map((v) => Math.round(v)))].map((v) => `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${P.l - 6}" y="${ys(v) + 4}" text-anchor="end">${money(Math.round(v))}</text>`).join("");
     const labels = [0, Math.floor((pts.length - 1) / 2), pts.length - 1].filter((v, i, a) => a.indexOf(v) === i)
       .map((i) => `<text x="${xs(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}">${pts[i].date}</text>`).join("");
     $("equity").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity curve">
@@ -191,6 +194,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       <path d="${area}" fill="${col}" opacity="0.10"/>
       <path d="${line}" fill="none" stroke="${col}" stroke-width="2"/>
       <path d="${dd}" fill="var(--neg)" opacity="0.35"/>
+      ${pts.length <= 3 ? pts.map((p, i) => `<circle cx="${xs(i)}" cy="${ys(p.equity)}" r="4" fill="${col}"/>`).join("") : ""}
       <text x="${P.l - 6}" y="${dy(ddLo) + 4}" text-anchor="end">${money(Math.round(ddLo))}</text>
       ${labels}
       <rect id="eqhit" x="${P.l}" y="0" width="${W - P.l - P.r}" height="${H}" fill="transparent"/>
@@ -272,7 +276,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     const ps = R.open_positions.filter((p) => p.currency === ccy);
     if (!ps.length) { $("positions").innerHTML = '<div class="empty">No open positions in ' + esc(ccy) + "</div>"; return; }
     const total = ps.reduce((a, p) => a + (p.market_value != null ? p.market_value : p.cost_basis), 0) || 1;
-    $("positions").innerHTML = `<table><thead><tr><th>Ticker</th><th>Side</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Last</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Unrealized</th><th class="num">Stop</th><th class="num">Risk to stop</th><th>Since</th></tr></thead><tbody>` +
+    $("positions").innerHTML = `<table><thead><tr><th>Ticker</th><th>Side</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Last</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Unrealized</th><th class="num">Stop</th><th class="num" title="P&amp;L if the stop fills">P&amp;L at stop</th><th>Since</th></tr></thead><tbody>` +
       ps.map((p) => {
         const value = p.market_value != null ? p.market_value : p.cost_basis;
         const stop = p.stop_loss == null ? '<span class="neg">none</span>' : money(p.stop_loss);
