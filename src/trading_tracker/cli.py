@@ -1185,26 +1185,31 @@ def fx_convert(
 
 
 def run() -> None:
-    """Console entry point. In --json mode, argument errors are JSON too."""
-    import click
+    """Console entry point. In --json mode, argument errors are JSON too.
 
+    Typer >= 0.22 vendors click, so errors are recognised by shape, not by importing click.
+    """
     argv = sys.argv[1:]
     if "--json" not in argv:
         app()
         return
+
+    def fail(message: str, **extra: Any) -> None:
+        sys.stdout.write(json.dumps({"ok": False, "error": message, **extra}, ensure_ascii=False) + "\n")
+        sys.exit(1)
+
     try:
         code = app(args=argv, prog_name="trade", standalone_mode=False)
-    except click.ClickException as exc:
-        sys.stdout.write(json.dumps({"ok": False, "error": exc.format_message(),
-                                     "usage_error": True}, ensure_ascii=False) + "\n")
-        sys.exit(1)
-    except click.exceptions.Abort:
-        sys.stdout.write(json.dumps({"ok": False, "error": "aborted"}) + "\n")
-        sys.exit(1)
+    except SystemExit as exc:
+        sys.exit(exc.code)
     except Exception as exc:  # never print a traceback to an agent
-        sys.stdout.write(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"},
-                                    ensure_ascii=False) + "\n")
-        sys.exit(1)
+        if hasattr(exc, "format_message") and hasattr(exc, "exit_code"):
+            fail(exc.format_message(), usage_error=True)  # click/typer UsageError, BadParameter...
+        if type(exc).__name__ == "Abort":
+            fail("aborted")
+        if type(exc).__name__ == "Exit" and hasattr(exc, "exit_code"):
+            sys.exit(exc.exit_code)
+        fail(f"{type(exc).__name__}: {exc}")
     sys.exit(code if isinstance(code, int) else 0)
 
 
