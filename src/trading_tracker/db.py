@@ -1,18 +1,43 @@
-"""SQLite database: initialization, migrations, CRUD operations."""
+"""SQLite storage: migrations, CRUD, and the closed_trades cache.
+
+The ``trades`` table is the only source of truth. Positions and realized P&L
+are produced by :mod:`trading_tracker.ledger`; ``closed_trades`` is a cache of
+the ledger's output that is rebuilt for the affected tickers after every write,
+so it can never drift from the trades.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
+
+from trading_tracker import ledger
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
+LATEST_SCHEMA = max(int(p.stem.split("_")[0]) for p in SCHEMA_DIR.glob("*.sql"))
+
+TRADE_FIELDS = {
+    "ticker", "action", "shares", "price", "commission", "timestamp", "strategy",
+    "setup", "confidence", "stop_loss", "target_1", "target_2", "entry_plan",
+    "note_path", "source", "tags", "notes", "position_group", "asset_type",
+    "instrument", "currency", "leverage", "multiplier", "external_id",
+}
+REVIEW_FIELDS = ("what_worked", "what_failed", "lesson", "rating")
+
+
+# ── connection & migrations ─────────────────────────────────────────────────
 
 
 def get_connection(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    path = Path(db_path).expanduser()
+    if str(db_path) != ":memory:":
+        path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path) if str(db_path) != ":memory:" else ":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -20,15 +45,51 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
 
 
 def init_db(db_path: str | Path) -> sqlite3.Connection:
-    """Create database and apply all migrations."""
+    """Open (creating if needed) a database and apply pending migrations."""
     conn = get_connection(db_path)
+    migrate(conn)
+    return conn
+
+
+def migrate(conn: sqlite3.Connection) -> int:
+    """Apply pending migrations. Rebuilds the P&L cache when the schema changed."""
     current = _get_schema_version(conn)
-    migrations = sorted(SCHEMA_DIR.glob("*.sql"))
-    for migration in migrations:
+    applied = False
+    for migration in sorted(SCHEMA_DIR.glob("*.sql")):
         version = int(migration.stem.split("_")[0])
         if version > current:
             conn.executescript(migration.read_text())
-    return conn
+            applied = True
+    if applied and current < 5:
+        _normalize_legacy_rows(conn)
+    if applied:
+        rebuild_closed_trades(conn)
+        conn.commit()
+    return _get_schema_version(conn)
+
+
+def _normalize_legacy_rows(conn: sqlite3.Connection) -> None:
+    """v0.5 stored --date strings and tickers as typed. Normalise them so fills sort in time order."""
+    from trading_tracker.importers import parse_timestamp  # local import: importers imports db
+
+    for table in ("trades", "events"):
+        try:
+            rows = conn.execute(f"SELECT id, ticker, timestamp FROM {table}").fetchall()
+        except sqlite3.OperationalError:
+            continue
+        for row in rows:
+            ts = row["timestamp"]
+            try:
+                new_ts = normalize_timestamp(ts) if ts else ts
+            except ValueError:
+                try:
+                    new_ts = parse_timestamp(ts, dayfirst=True)
+                except ValueError:
+                    new_ts = ts  # left for `db validate` to report
+            ticker = (row["ticker"] or "").strip().upper()
+            if new_ts != ts or ticker != row["ticker"]:
+                conn.execute(f"UPDATE {table} SET timestamp = ?, ticker = ? WHERE id = ?",
+                             (new_ts, ticker, row["id"]))
 
 
 def _get_schema_version(conn: sqlite3.Connection) -> int:
@@ -37,6 +98,93 @@ def _get_schema_version(conn: sqlite3.Connection) -> int:
         return row[0] or 0
     except sqlite3.OperationalError:
         return 0
+
+
+# ── normalisation helpers ───────────────────────────────────────────────────
+
+
+def normalize_timestamp(value: str | None) -> str:
+    """Parse an ISO-ish timestamp and return a sortable ISO string.
+
+    Accepts ``2025-01-15``, ``2025-01-15 10:30``, ``2025-01-15T10:30:00`` and
+    timezone-aware variants. Times with an offset are converted to this
+    machine's local time and stored without an offset, so they sort correctly
+    against fills typed in local time.
+    """
+    if value is None or str(value).strip() == "":
+        return datetime.now().isoformat(timespec="seconds")
+    raw = str(value).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError(f"Unrecognised timestamp {value!r}; use ISO format YYYY-MM-DD[THH:MM[:SS]]") from exc
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt.isoformat(timespec="seconds")
+
+
+def normalize_date_filter(value: str | None, name: str = "date") -> str | None:
+    """Validate a --from/--to bound: YYYY, YYYY-MM, YYYY-MM-DD or a full ISO timestamp."""
+    if value is None or str(value).strip() == "":
+        return None
+    raw = str(value).strip()
+    for fmt in ("%Y", "%Y-%m", "%Y-%m-%d"):
+        try:
+            datetime.strptime(raw, fmt)
+            return raw
+        except ValueError:
+            continue
+    try:
+        return normalize_timestamp(raw)
+    except ValueError:
+        raise ValueError(f"invalid {name} {value!r}; use YYYY-MM-DD (or YYYY-MM, YYYY)") from None
+
+
+_CURRENCY_RE = re.compile(r"^[A-Z0-9]{2,10}$")
+
+
+def normalize_currency(value: str | None, default: str | None = "USD") -> str | None:
+    if value is None or str(value).strip() == "":
+        return default
+    ccy = str(value).strip().upper()
+    if not _CURRENCY_RE.match(ccy):
+        raise ValueError(f"invalid currency code {value!r}; use a code like USD, EUR, JPY, USDT")
+    return ccy
+
+
+_ACTION_WORDS = {"BUY": "BUY", "B": "BUY", "BOT": "BUY", "BOUGHT": "BUY", "ПОКУПКА": "BUY",
+                 "SELL": "SELL", "S": "SELL", "SLD": "SELL", "SOLD": "SELL", "ПРОДАЖА": "SELL"}
+
+
+def normalize_action(action: str) -> str:
+    """BUY/SELL and their common broker spellings; anything else is returned for validation to reject."""
+    key = str(action or "").strip().upper()
+    return _ACTION_WORDS.get(key, key)
+
+
+def _validate_trade(action: str, shares: float, price: float, commission: float,
+                    multiplier: float) -> None:
+    if action not in ("BUY", "SELL"):
+        raise ValueError(f"action must be BUY or SELL, got {action!r}")
+    if shares is None or float(shares) <= 0:
+        raise ValueError("shares must be > 0")
+    if price is None or float(price) < 0:
+        raise ValueError("price must be >= 0")
+    if commission is not None and float(commission) < 0:
+        raise ValueError("commission must be >= 0")
+    if multiplier is not None and float(multiplier) <= 0:
+        raise ValueError("multiplier must be > 0")
+
+
+def trade_fingerprint(ticker: str, action: str, shares: float, price: float,
+                      timestamp: str) -> str:
+    """Stable id for a trade without a broker id (used to de-duplicate imports)."""
+    key = f"{ticker.upper()}|{action.upper()}|{ledger.D(shares).normalize()}|" \
+          f"{ledger.D(price).normalize()}|{timestamp}"
+    return "fp:" + hashlib.sha1(key.encode()).hexdigest()[:16]
+
+
+# ── trades ──────────────────────────────────────────────────────────────────
 
 
 def add_trade(
@@ -64,203 +212,349 @@ def add_trade(
     instrument: str = "stock",
     currency: str = "USD",
     leverage: float = 1.0,
+    multiplier: float = 1.0,
+    external_id: str | None = None,
+    commit: bool = True,
+    rebuild: bool = True,
 ) -> int:
     """Insert a trade and return its id.
 
-    If this trade reduces an existing position (e.g. SELL against a long),
-    a closed_trades record with P&L is created automatically.
+    Realized P&L for any position it reduces is recomputed automatically.
     """
-    ticker_upper = ticker.upper()
-    action_upper = action.upper()
-    ts = timestamp or datetime.now().isoformat(timespec="seconds")
+    ticker_u = ticker.upper().strip()
+    action_u = normalize_action(action)
+    commission = commission or 0
+    multiplier = multiplier or 1.0
+    _validate_trade(action_u, shares, price, commission, multiplier)
+    ts = normalize_timestamp(timestamp)
 
-    # Snapshot position BEFORE inserting this trade
-    pos_before = get_position(conn, ticker_upper)
-
-    tags_json = json.dumps(tags or [])
     cur = conn.execute(
         """
         INSERT INTO trades
             (ticker, action, shares, price, commission, timestamp, strategy, setup,
              confidence, stop_loss, target_1, target_2, entry_plan, note_path,
-             source, tags, notes, position_group, asset_type, instrument, currency, leverage)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             source, tags, notes, position_group, asset_type, instrument, currency,
+             leverage, multiplier, external_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            ticker_upper,
-            action_upper,
-            shares,
-            price,
-            commission,
-            ts,
-            strategy,
-            setup,
-            confidence,
-            stop_loss,
-            target_1,
-            target_2,
-            entry_plan,
-            note_path,
-            source,
-            tags_json,
-            notes,
-            position_group,
-            asset_type,
-            instrument,
-            currency,
-            leverage,
+            ticker_u, action_u, shares, price, commission, ts, strategy, setup,
+            confidence, stop_loss, target_1, target_2, entry_plan, note_path,
+            source, json.dumps(tags or []), notes, position_group, asset_type,
+            instrument, normalize_currency(currency), leverage, multiplier, external_id,
         ),
     )
     trade_id: int = cur.lastrowid  # type: ignore[assignment]
-
-    # Auto-close: if this trade reduces an existing position, record it
-    _auto_record_close(
-        conn, ticker_upper, action_upper, shares, price,
-        commission, ts, trade_id, pos_before, strategy, currency, instrument,
-    )
-
-    conn.commit()
+    if rebuild:
+        rebuild_closed_trades(conn, [ticker_u])
+    if commit:
+        conn.commit()
     return trade_id
 
 
-def _auto_record_close(
-    conn: sqlite3.Connection,
-    ticker: str,
-    action: str,
-    shares: float,
-    price: float,
-    commission: float,
-    timestamp: str,
-    exit_trade_id: int,
-    pos_before: dict[str, Any] | None,
-    strategy: str | None = None,
-    currency: str = "USD",
-    instrument: str = "stock",
-) -> None:
-    """Create a closed_trades record if this trade reduces a position."""
-    if pos_before is None:
-        return
-
-    net_before = pos_before["net_shares"]
-    is_long = net_before > 0
-
-    # Is this a counter-trade? SELL against long, or BUY against short
-    is_counter = (is_long and action == "SELL") or (not is_long and action == "BUY")
-    if not is_counter:
-        return
-
-    abs_before = abs(net_before)
-    shares_closed = min(shares, abs_before)
-    avg_entry = pos_before["avg_cost"]
-
-    # Entry trade IDs
-    entry_action = "BUY" if is_long else "SELL"
-    entry_rows = conn.execute(
-        "SELECT id FROM trades WHERE ticker = ? AND action = ? ORDER BY timestamp",
-        (ticker, entry_action),
-    ).fetchall()
-    entry_trade_ids = [r["id"] for r in entry_rows]
-
-    # P&L
-    if is_long:
-        gross_pnl = shares_closed * price - shares_closed * avg_entry
-    else:
-        gross_pnl = shares_closed * avg_entry - shares_closed * price
-
-    net_pnl = gross_pnl - commission
-    cost_basis = shares_closed * avg_entry
-    pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis else 0
-
-    # Hold duration
-    try:
-        dt_entry = datetime.fromisoformat(pos_before["first_trade"])
-        dt_exit = datetime.fromisoformat(timestamp)
-        hold_days = (dt_exit - dt_entry).total_seconds() / 86400
-    except (ValueError, TypeError):
-        hold_days = None
-
-    conn.execute(
-        """
-        INSERT INTO closed_trades
-            (ticker, direction, entry_trade_ids, exit_trade_ids, shares,
-             avg_entry_price, avg_exit_price, entry_avg_cost, total_commission,
-             gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy,
-             currency, instrument, closed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            ticker,
-            "long" if is_long else "short",
-            json.dumps(entry_trade_ids),
-            json.dumps([exit_trade_id]),
-            shares_closed,
-            avg_entry,
-            price,
-            avg_entry,
-            commission,
-            round(gross_pnl, 2),
-            round(net_pnl, 2),
-            round(pnl_percent, 2),
-            round(hold_days, 2) if hold_days is not None else None,
-            strategy,
-            currency,
-            instrument,
-            timestamp,
-        ),
-    )
-
-
-def edit_trade(
-    conn: sqlite3.Connection,
-    trade_id: int,
-    **fields: Any,
-) -> bool:
+def edit_trade(conn: sqlite3.Connection, trade_id: int, **fields: Any) -> bool:
     """Update fields on an existing trade. Returns True if a row was updated."""
-    allowed = {
-        "ticker",
-        "action",
-        "shares",
-        "price",
-        "commission",
-        "timestamp",
-        "strategy",
-        "setup",
-        "confidence",
-        "stop_loss",
-        "target_1",
-        "target_2",
-        "entry_plan",
-        "note_path",
-        "source",
-        "tags",
-        "notes",
-        "position_group",
-        "asset_type",
-        "instrument",
-        "currency",
-        "leverage",
-    }
-    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    existing = get_trade(conn, trade_id)
+    if existing is None:
+        return False
+    updates = {k: v for k, v in fields.items() if k in TRADE_FIELDS and v is not None}
     if not updates:
         return False
     if "tags" in updates and isinstance(updates["tags"], list):
         updates["tags"] = json.dumps(updates["tags"])
     if "ticker" in updates:
-        updates["ticker"] = updates["ticker"].upper()
+        updates["ticker"] = updates["ticker"].upper().strip()
+        if not updates["ticker"]:
+            raise ValueError("ticker cannot be empty")
     if "action" in updates:
-        updates["action"] = updates["action"].upper()
+        updates["action"] = normalize_action(updates["action"])
+    if "currency" in updates:
+        updates["currency"] = normalize_currency(updates["currency"])
+    if "timestamp" in updates:
+        updates["timestamp"] = normalize_timestamp(updates["timestamp"])
+    merged = {**existing, **updates}
+    _validate_trade(merged["action"], merged["shares"], merged["price"],
+                    merged.get("commission") or 0, merged.get("multiplier") or 1)
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [trade_id]
-    cur = conn.execute(f"UPDATE trades SET {set_clause} WHERE id = ?", values)
+    cur = conn.execute(
+        f"UPDATE trades SET {set_clause} WHERE id = ?", [*updates.values(), trade_id]
+    )
+    rebuild_closed_trades(conn, {existing["ticker"], merged["ticker"]})
     conn.commit()
     return cur.rowcount > 0
 
 
 def delete_trade(conn: sqlite3.Connection, trade_id: int) -> bool:
     """Delete a trade by ID. Returns True if a row was deleted."""
-    cur = conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+    existing = get_trade(conn, trade_id)
+    if existing is None:
+        return False
+    conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+    conn.execute("DELETE FROM trade_reviews WHERE exit_trade_id = ?", (trade_id,))
+    rebuild_closed_trades(conn, [existing["ticker"]])
     conn.commit()
-    return cur.rowcount > 0
+    return True
+
+
+def get_trade(conn: sqlite3.Connection, trade_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_trades(conn: sqlite3.Connection, ticker: str | None = None) -> list[dict[str, Any]]:
+    if ticker:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE ticker = ? ORDER BY timestamp, id", (ticker.upper(),)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM trades ORDER BY timestamp, id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_by_external_id(conn: sqlite3.Connection, source: str, external_id: str) -> int | None:
+    row = conn.execute(
+        "SELECT id FROM trades WHERE source = ? AND external_id = ?", (source, external_id)
+    ).fetchone()
+    return row["id"] if row else None
+
+
+# ── corporate events (splits, dividends) ───────────────────────────────────
+
+
+def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: str | None = None,
+              ratio: float | None = None, amount: float | None = None, tax: float = 0,
+              currency: str | None = None, notes: str | None = None, source: str = "manual",
+              external_id: str | None = None, commit: bool = True, force: bool = False) -> int:
+    kind = kind.lower()
+    if kind == "split":
+        if ratio is None or ratio <= 0:
+            raise ValueError("split needs a ratio > 0 (e.g. 4 for a 4-for-1 split, 0.1 for 1-for-10)")
+        dup = _similar_split(conn, ticker, ratio, normalize_timestamp(timestamp))
+        if dup and not force:
+            raise ValueError(
+                f"{ticker.upper()} already has a x{dup['ratio']:g} split on {dup['timestamp'][:10]} "
+                f"(event #{dup['id']}, source {dup['source']}); recording it again would apply it twice. "
+                "Check `trade event list --ticker` or pass --force if this is a second split")
+    elif kind == "dividend":
+        if amount is None:
+            raise ValueError("dividend needs an amount (total cash received, before tax)")
+    else:
+        raise ValueError("kind must be 'split' or 'dividend'")
+    cur = conn.execute(
+        "INSERT INTO events (ticker, kind, timestamp, ratio, amount, tax, currency, notes, source, external_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticker.upper(), kind, normalize_timestamp(timestamp), ratio, amount, tax or 0,
+         normalize_currency(currency, None), notes, source, external_id),
+    )
+    rebuild_closed_trades(conn, [ticker])
+    if commit:
+        conn.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
+def _similar_split(conn: sqlite3.Connection, ticker: str, ratio: float, ts: str,
+                   days: int = 10, exclude_id: int | None = None) -> dict[str, Any] | None:
+    when = datetime.fromisoformat(ts)
+    for r in conn.execute("SELECT id, timestamp, ratio, source FROM events WHERE kind = 'split' AND ticker = ?",
+                          (ticker.upper(),)).fetchall():
+        if r["id"] == exclude_id or abs(float(r["ratio"]) - float(ratio)) > 1e-9:
+            continue
+        try:
+            if abs((datetime.fromisoformat(r["timestamp"]) - when).days) <= days:
+                return dict(r)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def get_events(conn: sqlite3.Connection, ticker: str | None = None) -> list[dict[str, Any]]:
+    try:
+        if ticker:
+            rows = conn.execute("SELECT * FROM events WHERE ticker = ? ORDER BY timestamp, id",
+                                (ticker.upper(),)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM events ORDER BY timestamp, id").fetchall()
+    except sqlite3.OperationalError:  # pre-005 database
+        return []
+    return [dict(r) for r in rows]
+
+
+def delete_event(conn: sqlite3.Connection, event_id: int) -> bool:
+    row = conn.execute("SELECT ticker FROM events WHERE id = ?", (event_id,)).fetchone()
+    if row is None:
+        return False
+    conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+    rebuild_closed_trades(conn, [row["ticker"]])
+    conn.commit()
+    return True
+
+
+# ── ledger-derived data ─────────────────────────────────────────────────────
+
+
+def run_ledger(conn: sqlite3.Connection, ticker: str | None = None) -> ledger.LedgerResult:
+    return ledger.replay(get_trades(conn, ticker), get_events(conn, ticker))
+
+
+def rebuild_closed_trades(conn: sqlite3.Connection, tickers: Iterable[str] | None = None) -> int:
+    """Recompute closed_trades from trades (all tickers, or only the given ones)."""
+    if tickers is None:
+        conn.execute("DELETE FROM closed_trades")
+        trades = get_trades(conn)
+        events = get_events(conn)
+    else:
+        tickers = sorted({t.upper() for t in tickers if t})
+        if not tickers:
+            return 0
+        marks = ",".join("?" * len(tickers))
+        conn.execute(f"DELETE FROM closed_trades WHERE ticker IN ({marks})", tickers)
+        trades = [
+            dict(r) for r in conn.execute(
+                f"SELECT * FROM trades WHERE ticker IN ({marks}) ORDER BY timestamp, id", tickers
+            ).fetchall()
+        ]
+        events = [
+            dict(r) for r in conn.execute(
+                f"SELECT * FROM events WHERE ticker IN ({marks})", tickers
+            ).fetchall()
+        ]
+    result = ledger.replay(trades, events)
+    reviews = {
+        r["exit_trade_id"]: dict(r)
+        for r in conn.execute("SELECT * FROM trade_reviews").fetchall()
+    }
+    for lot in result.realized:
+        row = lot.to_row()
+        rv = reviews.get(lot.exit_trade_id, {})
+        conn.execute(
+            """
+            INSERT INTO closed_trades
+                (ticker, direction, entry_trade_ids, exit_trade_ids, exit_trade_id, shares,
+                 avg_entry_price, avg_exit_price, entry_avg_cost, multiplier,
+                 entry_commission, exit_commission, total_commission,
+                 gross_pnl, net_pnl, pnl_percent, hold_duration_days, strategy,
+                 currency, instrument, opened_at, closed_at,
+                 what_worked, what_failed, lesson, rating)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["ticker"], row["direction"], json.dumps(row["entry_trade_ids"]),
+                json.dumps(row["exit_trade_ids"]), row["exit_trade_id"], row["shares"],
+                row["avg_entry_price"], row["avg_exit_price"], row["entry_avg_cost"],
+                row["multiplier"], row["entry_commission"], row["exit_commission"],
+                row["total_commission"], row["gross_pnl"], row["net_pnl"],
+                row["pnl_percent"], row["hold_duration_days"], row["strategy"],
+                row["currency"], row["instrument"], row["opened_at"], row["closed_at"],
+                rv.get("what_worked"), rv.get("what_failed"), rv.get("lesson"), rv.get("rating"),
+            ),
+        )
+    return len(result.realized)
+
+
+def get_position(conn: sqlite3.Connection, ticker: str) -> dict[str, Any] | None:
+    """Get a single open position by ticker (None if flat)."""
+    return run_ledger(conn, ticker).positions.get(ticker.upper())
+
+
+def get_positions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """All open positions, sorted by ticker."""
+    positions = run_ledger(conn).positions
+    return [positions[k] for k in sorted(positions)]
+
+
+def _closed_row(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    for k in ("entry_trade_ids", "exit_trade_ids"):
+        if isinstance(d.get(k), str):
+            try:
+                d[k] = json.loads(d[k])
+            except json.JSONDecodeError:
+                pass
+    return d
+
+
+def get_closed_trades(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Realized P&L records (most recent first)."""
+    rows = conn.execute(
+        "SELECT * FROM closed_trades ORDER BY closed_at DESC, exit_trade_id DESC"
+    ).fetchall()
+    return [_closed_row(r) for r in rows]
+
+
+def get_realized_for_trade(conn: sqlite3.Connection, trade_id: int) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM closed_trades WHERE exit_trade_id = ?", (trade_id,)
+    ).fetchone()
+    return _closed_row(row) if row else None
+
+
+def get_history(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 50,
+    ticker: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    closed_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Trade history (or realized P&L records) with optional filters."""
+    from_date = normalize_date_filter(from_date, "--from")
+    to_date = normalize_date_filter(to_date, "--to")
+    table, ts_col = ("closed_trades", "closed_at") if closed_only else ("trade_history", "timestamp")
+    query = f"SELECT * FROM {table} WHERE 1=1"
+    params: list[Any] = []
+    if ticker:
+        query += " AND ticker = ?"
+        params.append(ticker.upper())
+    if from_date:
+        query += f" AND {ts_col} >= ?"
+        params.append(from_date)
+    if to_date:
+        # A bare date, month or year means "through the end of that period".
+        query += f" AND {ts_col} <= ?"
+        params.append(to_date + "~" if len(to_date) <= 10 else to_date)
+    query += f" ORDER BY {ts_col} DESC" + (", exit_trade_id DESC" if closed_only else ", id DESC")
+    query += " LIMIT ?"
+    params.append(limit)
+    return [_closed_row(r) for r in conn.execute(query, params).fetchall()]
+
+
+# ── reviews ─────────────────────────────────────────────────────────────────
+
+
+def set_review(conn: sqlite3.Connection, exit_trade_id: int, **fields: Any) -> bool:
+    """Attach a review (what_worked / what_failed / lesson / rating) to a realized trade."""
+    review = {k: v for k, v in fields.items() if k in REVIEW_FIELDS and v is not None}
+    if not review:
+        return False
+    if get_realized_for_trade(conn, exit_trade_id) is None:
+        row = conn.execute("SELECT ticker FROM trades WHERE id = ?", (exit_trade_id,)).fetchone()
+        hint = ""
+        if row is not None:
+            ids = [r["exit_trade_id"] for r in conn.execute(
+                "SELECT exit_trade_id FROM closed_trades WHERE ticker = ? ORDER BY closed_at DESC LIMIT 5",
+                (row["ticker"],))]
+            if ids:
+                hint = f"; closing fills for {row['ticker']}: {', '.join(f'#{i}' for i in ids)}"
+        raise ValueError(f"Trade #{exit_trade_id} did not close (part of) a position. "
+                         f"Review the closing fill (realized.exit_trade_id){hint}")
+    if "rating" in review and not 1 <= int(review["rating"]) <= 5:
+        raise ValueError("rating must be 1-5")
+    cols = ", ".join(review)
+    marks = ", ".join("?" * len(review))
+    updates = ", ".join(f"{k} = excluded.{k}" for k in review)
+    conn.execute(
+        f"INSERT INTO trade_reviews (exit_trade_id, {cols}) VALUES (?, {marks}) "
+        f"ON CONFLICT(exit_trade_id) DO UPDATE SET {updates}, updated_at = datetime('now')",
+        [exit_trade_id, *review.values()],
+    )
+    set_clause = ", ".join(f"{k} = ?" for k in review)
+    conn.execute(
+        f"UPDATE closed_trades SET {set_clause} WHERE exit_trade_id = ?",
+        [*review.values(), exit_trade_id],
+    )
+    conn.commit()
+    return True
 
 
 def close_position(
@@ -275,264 +569,161 @@ def close_position(
     what_failed: str | None = None,
     lesson: str | None = None,
     rating: int | None = None,
+    timestamp: str | None = None,
 ) -> dict[str, Any]:
-    """Close (fully or partially) a position — works for both long and short.
-
-    This is a convenience wrapper around add_trade that:
-    1. Validates the position exists and shares are valid
-    2. Creates the counter-trade (add_trade auto-creates closed_trades with P&L)
-    3. Adds optional review notes (what_worked, lesson, etc.)
-    """
+    """Close (fully or partially) a long or short position and optionally review it."""
     ticker = ticker.upper()
-
     pos = get_position(conn, ticker)
     if pos is None:
         raise ValueError(f"No open position for {ticker}")
+    held = pos["shares"]
+    if shares > held + 1e-9:
+        raise ValueError(f"Cannot close {shares} shares, only {held} held ({pos['direction']})")
 
-    net = pos["net_shares"]
-    is_long = net > 0
-    abs_held = abs(net)
-
-    if shares > abs_held:
-        raise ValueError(
-            f"Cannot close {shares} shares, only {abs_held} held"
-            f" ({'long' if is_long else 'short'})"
-        )
-
-    avg_entry = pos["avg_cost"]
-    close_action = "SELL" if is_long else "BUY"
-
-    # add_trade auto-creates closed_trades via _auto_record_close
-    currency = pos.get("currency", "USD")
-    instrument = pos.get("instrument", "stock")
-    add_trade(
-        conn, ticker, close_action, shares, exit_price,
-        commission=commission, strategy=strategy, currency=currency,
-        instrument=instrument,
+    trade_id = add_trade(
+        conn, ticker, "SELL" if pos["direction"] == "long" else "BUY", shares, exit_price,
+        commission=commission, strategy=strategy, currency=pos["currency"],
+        instrument=pos["instrument"], multiplier=pos["multiplier"], timestamp=timestamp,
     )
-
-    # Add review notes to the auto-created closed_trades record
-    review_fields: dict[str, Any] = {}
-    if what_worked is not None:
-        review_fields["what_worked"] = what_worked
-    if what_failed is not None:
-        review_fields["what_failed"] = what_failed
-    if lesson is not None:
-        review_fields["lesson"] = lesson
-    if rating is not None:
-        review_fields["rating"] = rating
-
-    if review_fields:
-        ct = conn.execute(
-            "SELECT id FROM closed_trades WHERE ticker = ? ORDER BY id DESC LIMIT 1",
-            (ticker,),
-        ).fetchone()
-        if ct:
-            set_clause = ", ".join(f"{k} = ?" for k in review_fields)
-            values = list(review_fields.values()) + [ct["id"]]
-            conn.execute(
-                f"UPDATE closed_trades SET {set_clause} WHERE id = ?", values
-            )
-            conn.commit()
-
-    # Compute result for caller
-    if is_long:
-        gross_pnl = shares * exit_price - shares * avg_entry
-    else:
-        gross_pnl = shares * avg_entry - shares * exit_price
-
-    net_pnl = gross_pnl - commission
-    cost_basis = shares * avg_entry
-    pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis else 0
-    remaining = abs_held - shares
-
+    set_review(conn, trade_id, what_worked=what_worked, what_failed=what_failed,
+               lesson=lesson, rating=rating)
+    realized = get_realized_for_trade(conn, trade_id) or {}
+    after = get_position(conn, ticker)
     return {
+        "trade_id": trade_id,
         "ticker": ticker,
-        "direction": "long" if is_long else "short",
+        "direction": pos["direction"],
         "shares": shares,
-        "avg_entry": avg_entry,
+        "avg_entry": pos["avg_cost"],
         "exit_price": exit_price,
-        "gross_pnl": round(gross_pnl, 2),
-        "net_pnl": round(net_pnl, 2),
-        "pnl_percent": round(pnl_percent, 2),
-        "remaining_shares": remaining,
-        "remaining_avg_cost": avg_entry,
+        "gross_pnl": realized.get("gross_pnl"),
+        "net_pnl": realized.get("net_pnl"),
+        "pnl_percent": realized.get("pnl_percent"),
+        "remaining_shares": after["shares"] if after else 0.0,
+        "remaining_avg_cost": after["avg_cost"] if after else None,
     }
 
 
-def _compute_position_from_trades(trades: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Compute position by walking trades chronologically (avg cost method).
-
-    - Adding to a position: avg_cost = weighted average of old + new
-    - Reducing a position: avg_cost stays the same
-    - Full close (net=0): avg_cost resets
-    - Position flip: avg_cost = price of the flip trade
-    """
-    net = 0.0
-    avg = 0.0
-    total_commission = 0.0
-    first_ts: str | None = None
-    last_ts: str | None = None
-    count = 0
-
-    for t in trades:
-        action = t["action"]
-        shares = t["shares"]
-        price = t["price"]
-        count += 1
-        total_commission += t.get("commission", 0) or 0
-        last_ts = t["timestamp"]
-
-        if action == "BUY":
-            if net >= 0:
-                # Flat or long — adding to long
-                avg = (net * avg + shares * price) / (net + shares)
-                net += shares
-            else:
-                # Short — covering
-                net += shares
-                if net > 0:
-                    avg = price
-                elif net == 0:
-                    avg = 0.0
-        elif action == "SELL":
-            if net <= 0:
-                # Flat or short — adding to short
-                avg = (abs(net) * avg + shares * price) / (abs(net) + shares)
-                net -= shares
-            else:
-                # Long — selling
-                net -= shares
-                if net < 0:
-                    avg = price
-                elif net == 0:
-                    avg = 0.0
-
-        # Track first trade of current position epoch
-        if net != 0 and first_ts is None:
-            first_ts = t["timestamp"]
-        elif net == 0:
-            first_ts = None
-
-    if net == 0:
-        return None
-
-    return {
-        "ticker": trades[0]["ticker"],
-        "net_shares": net,
-        "avg_cost": avg,
-        "total_commission": total_commission,
-        "first_trade": first_ts,
-        "last_trade": last_ts,
-        "trade_count": count,
-        "currency": trades[0].get("currency", "USD"),
-        "instrument": trades[0].get("instrument", "stock"),
-    }
+# ── prices ──────────────────────────────────────────────────────────────────
 
 
-def get_position(conn: sqlite3.Connection, ticker: str) -> dict[str, Any] | None:
-    """Get a single open position by ticker."""
-    rows = conn.execute(
-        "SELECT * FROM trades WHERE ticker = ? ORDER BY timestamp, id",
-        (ticker.upper(),),
-    ).fetchall()
-    if not rows:
-        return None
-    return _compute_position_from_trades([dict(r) for r in rows])
+def set_price(conn: sqlite3.Connection, ticker: str, price: float, *,
+              currency: str | None = None, as_of: str | None = None,
+              source: str = "manual") -> None:
+    if price is None or float(price) < 0:
+        raise ValueError("price must be >= 0")
+    conn.execute(
+        "INSERT INTO prices (ticker, price, currency, as_of, source) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(ticker) DO UPDATE SET price = excluded.price, currency = excluded.currency, "
+        "as_of = excluded.as_of, source = excluded.source",
+        (ticker.upper(), price, normalize_currency(currency, None),
+         normalize_timestamp(as_of), source),
+    )
+    conn.commit()
 
 
-def get_positions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Get all open positions."""
-    rows = conn.execute(
-        "SELECT * FROM trades ORDER BY ticker, timestamp, id"
-    ).fetchall()
-    by_ticker: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
+def get_prices(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    return {r["ticker"]: dict(r) for r in conn.execute("SELECT * FROM prices").fetchall()}
+
+
+# ── journal ─────────────────────────────────────────────────────────────────
+
+
+def add_journal_entry(conn: sqlite3.Connection, text: str, *, date: str | None = None,
+                      ticker: str | None = None, kind: str = "note", mood: int | None = None,
+                      tags: list[str] | None = None) -> int:
+    if not text or not text.strip():
+        raise ValueError("journal text is empty")
+    if mood is not None and not 1 <= mood <= 5:
+        raise ValueError("mood must be 1-5")
+    day = normalize_timestamp(date)[:10] if date else datetime.now().date().isoformat()
+    cur = conn.execute(
+        "INSERT INTO journal_entries (date, ticker, kind, mood, text, tags) VALUES (?, ?, ?, ?, ?, ?)",
+        (day, ticker.upper() if ticker else None, kind, mood, text.strip(), json.dumps(tags or [])),
+    )
+    conn.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
+def get_journal(conn: sqlite3.Connection, *, ticker: str | None = None, kind: str | None = None,
+                tag: str | None = None, from_date: str | None = None, to_date: str | None = None,
+                limit: int = 1000) -> list[dict[str, Any]]:
+    q = "SELECT * FROM journal_entries WHERE 1=1"
+    params: list[Any] = []
+    if ticker:
+        q += " AND ticker = ?"
+        params.append(ticker.upper())
+    if kind:
+        q += " AND kind = ?"
+        params.append(kind.lower())
+    from_date = normalize_date_filter(from_date, "--from")
+    to_date = normalize_date_filter(to_date, "--to")
+    if from_date:
+        q += " AND date >= ?"
+        params.append(from_date)
+    if to_date:
+        q += " AND date <= ?"
+        params.append(to_date + "~" if len(to_date) <= 10 else to_date)
+    if tag:
+        q += " AND EXISTS (SELECT 1 FROM json_each(COALESCE(tags, '[]')) WHERE lower(value) = lower(?))"
+        params.append(tag)
+    q += " ORDER BY date DESC, id DESC LIMIT ?"
+    params.append(limit)
+    out = []
+    for r in conn.execute(q, params).fetchall():
         d = dict(r)
-        by_ticker.setdefault(d["ticker"], []).append(d)
-    positions = []
-    for trades in by_ticker.values():
-        pos = _compute_position_from_trades(trades)
-        if pos is not None:
-            positions.append(pos)
-    return positions
+        try:
+            d["tags"] = json.loads(d.get("tags") or "[]")
+        except json.JSONDecodeError:
+            d["tags"] = []
+        out.append(d)
+    return out
 
 
-def get_trade(conn: sqlite3.Connection, trade_id: int) -> dict[str, Any] | None:
-    """Get a single trade by id."""
-    row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
-    return dict(row) if row else None
+def delete_journal_entry(conn: sqlite3.Connection, entry_id: int) -> bool:
+    cur = conn.execute("DELETE FROM journal_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    return cur.rowcount > 0
 
 
-def get_history(
-    conn: sqlite3.Connection,
-    *,
-    limit: int = 50,
-    ticker: str | None = None,
-    from_date: str | None = None,
-    to_date: str | None = None,
-    closed_only: bool = False,
-) -> list[dict[str, Any]]:
-    """Get trade history with optional filters."""
-    if closed_only:
-        query = "SELECT * FROM closed_trades WHERE 1=1"
-        params: list[Any] = []
-        if ticker:
-            query += " AND ticker = ?"
-            params.append(ticker.upper())
-        if from_date:
-            query += " AND closed_at >= ?"
-            params.append(from_date)
-        if to_date:
-            query += " AND closed_at <= ?"
-            params.append(to_date)
-        query += " ORDER BY closed_at DESC LIMIT ?"
-        params.append(limit)
-    else:
-        query = "SELECT * FROM trade_history WHERE 1=1"
-        params = []
-        if ticker:
-            query += " AND ticker = ?"
-            params.append(ticker.upper())
-        if from_date:
-            query += " AND timestamp >= ?"
-            params.append(from_date)
-        if to_date:
-            query += " AND timestamp <= ?"
-            params.append(to_date)
-        query += " LIMIT ?"
-        params.append(limit)
-    rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
-
-
-def get_closed_trades(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Get all closed trades for analytics."""
-    rows = conn.execute(
-        "SELECT * FROM closed_trades ORDER BY closed_at DESC"
-    ).fetchall()
-    return [dict(r) for r in rows]
+# ── validation ──────────────────────────────────────────────────────────────
 
 
 def validate_db(conn: sqlite3.Connection) -> list[str]:
-    """Run consistency checks. Returns list of issues found."""
+    """Consistency checks. Returns a list of human-readable issues."""
     issues: list[str] = []
+    for row in conn.execute("SELECT id, timestamp FROM trades"):
+        try:
+            datetime.fromisoformat(row["timestamp"])
+        except (TypeError, ValueError):
+            issues.append(f"trade #{row['id']}: timestamp {row['timestamp']!r} is not ISO; fix with `trade edit "
+                          f"{row['id']} --date YYYY-MM-DDTHH:MM`")
+    for ev in conn.execute("SELECT id, ticker, timestamp, ratio FROM events WHERE kind = 'split' ORDER BY id"):
+        dup = _similar_split(conn, ev["ticker"], ev["ratio"], ev["timestamp"], exclude_id=ev["id"])
+        if dup and dup["id"] < ev["id"]:
+            issues.append(f"split #{ev['id']} on {ev['ticker']} duplicates split #{dup['id']} (x{ev['ratio']:g}, "
+                          f"{dup['timestamp'][:10]}); delete one with `trade event delete ID`")
+    for row in conn.execute("SELECT id, ticker FROM trades WHERE price = 0 AND COALESCE(instrument, 'stock') "
+                            "IN ('stock', 'etf')"):
+        issues.append(f"trade #{row['id']} ({row['ticker']}) has price 0: if it is a split or transfer, delete it "
+                      "and record a split event instead")
+    result = run_ledger(conn)
+    issues.extend(result.warnings)
 
-    # Check closed_trades reference valid trade IDs
-    closed = conn.execute("SELECT id, entry_trade_ids, exit_trade_ids FROM closed_trades").fetchall()
-    for ct in closed:
-        for field in ("entry_trade_ids", "exit_trade_ids"):
-            try:
-                ids = json.loads(ct[field])
-                for tid in ids:
-                    exists = conn.execute(
-                        "SELECT 1 FROM trades WHERE id = ?", (tid,)
-                    ).fetchone()
-                    if not exists:
-                        issues.append(
-                            f"closed_trade {ct['id']}: references missing trade {tid} in {field}"
-                        )
-            except (json.JSONDecodeError, TypeError):
-                issues.append(f"closed_trade {ct['id']}: invalid JSON in {field}")
+    cached = {r["exit_trade_id"]: r for r in get_closed_trades(conn)}
+    fresh = {lot.exit_trade_id: lot.to_row() for lot in result.realized}
+    if set(cached) != set(fresh):
+        issues.append("closed_trades cache is out of date (run `trade db rebuild`)")
+    else:
+        for tid, row in fresh.items():
+            if abs((cached[tid]["net_pnl"] or 0) - row["net_pnl"]) > 0.005:
+                issues.append(f"closed_trades cache mismatch for trade {tid} (run `trade db rebuild`)")
+                break
 
+    orphan = conn.execute(
+        "SELECT exit_trade_id FROM trade_reviews WHERE exit_trade_id NOT IN "
+        "(SELECT exit_trade_id FROM closed_trades WHERE exit_trade_id IS NOT NULL)"
+    ).fetchall()
+    for r in orphan:
+        issues.append(f"review for trade {r[0]} no longer matches a closed position")
     return issues

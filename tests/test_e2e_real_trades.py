@@ -8,7 +8,7 @@ Key rules:
   an existing position (SELL vs long, BUY vs short).
 - P&L = avg cost method (verified to match broker's calculations).
 - Broker's 'profit' field = gross P&L (without commission).
-- Our net P&L = gross - exit commission.
+- Our net P&L = gross - entry commission (pro-rata) - exit commission.
 - Options: summ = q * price * 100 (contract multiplier).
   In tests we use summ/q as price to keep math simple.
 - trade stats should work with just add_trade — no close_position needed.
@@ -115,8 +115,8 @@ class TestFRO:
         assert ct["avg_exit_price"] == pytest.approx(35.946, abs=0.001)
         # Broker says gross = -10.8
         assert ct["gross_pnl"] == pytest.approx(-10.8, abs=0.01)
-        # Net = -10.8 - 1.78 (exit commission) = -12.58
-        assert ct["net_pnl"] == pytest.approx(-12.58, abs=0.01)
+        # Net = -10.8 - 1.83 (entry) - 1.78 (exit) = -14.41
+        assert ct["net_pnl"] == pytest.approx(-14.41, abs=0.01)  # net incl. entry commission
 
     def test_position_fully_closed(self, conn):
         db.add_trade(conn, "FRO", "buy", 3, 39.546, timestamp="2026-03-02T12:00:00")
@@ -136,7 +136,7 @@ class TestRBLX:
 
         ct = _get_last_closed(conn, "RBLX")
         assert ct["gross_pnl"] == pytest.approx(45.88, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(44.16, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(43.86, abs=0.01)  # net incl. entry commission
 
 
 class TestKMGZ:
@@ -151,7 +151,7 @@ class TestKMGZ:
 
         ct = _get_last_closed(conn, "KMGZ")
         assert ct["gross_pnl"] == pytest.approx(5846.02, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(5845.99, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(5845.98, abs=0.01)  # net incl. entry commission
 
 
 class TestALT:
@@ -166,7 +166,7 @@ class TestALT:
 
         ct = _get_last_closed(conn, "ALT")
         assert ct["gross_pnl"] == pytest.approx(3.12, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(3.01, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(1.72, abs=0.01)  # net incl. entry commission
 
 
 class TestWBTN:
@@ -181,7 +181,7 @@ class TestWBTN:
 
         ct = _get_last_closed(conn, "WBTN")
         assert ct["gross_pnl"] == pytest.approx(6.62, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(5.33, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(4.07, abs=0.01)  # net incl. entry commission
 
 
 class TestATYR:
@@ -196,7 +196,7 @@ class TestATYR:
 
         ct = _get_last_closed(conn, "ATYR")
         assert ct["gross_pnl"] == pytest.approx(2.76, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(1.45, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(0.15, abs=0.01)  # net incl. entry commission
 
 
 class TestTMF:
@@ -211,7 +211,7 @@ class TestTMF:
 
         ct = _get_last_closed(conn, "TMF")
         assert ct["gross_pnl"] == pytest.approx(0.33, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(-1.08, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(-1.28, abs=0.01)  # net incl. entry commission
 
 
 class TestSRTS:
@@ -226,7 +226,7 @@ class TestSRTS:
 
         ct = _get_last_closed(conn, "SRTS")
         assert ct["gross_pnl"] == pytest.approx(7.64, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(7.48, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(7.36, abs=0.01)  # net incl. entry commission
 
 
 # ── Partial closes (HSBK: 40 shares closed via 4 separate SELLs) ────────────
@@ -379,7 +379,7 @@ class TestUSOPartialClose:
         ct = _get_last_closed(conn, "USO")
         assert ct["shares"] == 1
         assert ct["gross_pnl"] == pytest.approx(5.54, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(3.87, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(2.83, abs=0.01)  # net incl. entry commission
 
         pos = db.get_position(conn, "USO")
         assert pos["net_shares"] == 1
@@ -404,7 +404,7 @@ class TestOptionXLU:
 
         ct = _get_last_closed(conn, "XLU-C78-MAR25")
         assert ct["gross_pnl"] == pytest.approx(65.0, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(52.0, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(39.0, abs=0.01)  # net incl. entry commission
 
 
 class TestOptionXLV:
@@ -421,7 +421,7 @@ class TestOptionXLV:
 
         ct = _get_last_closed(conn, "XLV-C137-JUL25")
         assert ct["gross_pnl"] == pytest.approx(53.0, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(40.0, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(27.0, abs=0.01)  # net incl. entry commission
 
 
 class TestOptionBOTZExpired:
@@ -438,7 +438,7 @@ class TestOptionBOTZExpired:
 
         ct = _get_last_closed(conn, "BOTZ-C32-MAR25")
         assert ct["gross_pnl"] == pytest.approx(-15.0, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(-15.0, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(-28.0, abs=0.01)  # net incl. entry commission
 
 
 class TestOptionBTGExpired:
@@ -456,7 +456,7 @@ class TestOptionBTGExpired:
 
         ct = _get_last_closed(conn, "BTG-C5-DEC25")
         assert ct["gross_pnl"] == pytest.approx(-40.0, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(-40.0, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(-56.0, abs=0.01)  # net incl. entry commission
 
 
 class TestOptionUSOQuickFlip:
@@ -473,7 +473,7 @@ class TestOptionUSOQuickFlip:
 
         ct = _get_last_closed(conn, "USO-C86-MAR26")
         assert ct["gross_pnl"] == pytest.approx(19.0, abs=0.01)
-        assert ct["net_pnl"] == pytest.approx(6.0, abs=0.01)
+        assert ct["net_pnl"] == pytest.approx(-7.0, abs=0.01)  # net incl. entry commission
 
 
 # ── Open positions (only buys, no sells) ────────────────────────────────────

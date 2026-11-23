@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-11-24
+
+Turns the tracker into a journal that AI agents can drive safely, packaged as a
+Claude Code plugin / agent skill.
+
+### Added
+- **Deterministic ledger** (`ledger.py`): positions and realized P&L are replayed from
+  `trades` in `Decimal`; `closed_trades` is a cache rebuilt after every change.
+- **`--json` on every command** with `{"ok": ..., "data"|"error": ...}` responses; `--db` global option,
+  `TRADE_DB` / `TRADE_CONFIG` environment variables.
+- **Import** (`trade import`): any CSV/XLSX/JSON with auto-detected columns, Interactive Brokers
+  Flex and Activity Statements (dividends and splits become events), Trading 212, Binance (pairs,
+  coin fees), Schwab-style option histories (expiry/assignment), optional Freedom Finance and
+  T-Invest presets, JSON lists from agents, `--dry-run`, `--map`, idempotent re-imports.
+  FX conversions are never booked as positions; fees in another currency are never silently converted.
+- **Prices** (`trade price set/list/fetch`): stored quotes with source and time mark positions to market.
+- **Corporate events**: `trade event split` and `trade event dividend`.
+- **Journal**: `trade journal add/list/delete`, `trade review` for post-trade reviews (kept across edits).
+- **Report** (`trade report`): full JSON snapshot per currency — summary, equity curve with drawdown,
+  breakdowns by month, ticker, strategy, tag, AI vs manual, weekday, instrument; R-multiples from stops.
+- **Interactive dashboard** (`trade dashboard`): one self-contained offline HTML file.
+- Contract multiplier (`--multiplier`), `--setup`, `--external-id`, breakeven price, risk to stop,
+  warnings for positions without a stop-loss.
+- Claude Code plugin (`.claude-plugin/`), skill `skills/trading-journal/`, `AGENTS.md`, examples.
+- `trade add` returns `warnings` for a missing or wrong-side stop; `journal list --tag --kind --from --to`.
+- Tests: ledger invariants on randomized books, importers, six broker personas, report, JSON CLI,
+  migration (420+ total).
+
+### Fixed after review
+- `--json` errors are always JSON, including bad arguments and unexpected exceptions.
+- Invalid `--from/--to` dates are rejected instead of returning wrong numbers.
+- Fills with a time-zone offset are ordered by the actual instant; v0.5 timestamps and
+  lowercase tickers are normalised on upgrade.
+- `1,000` is read as a thousand (US exports); comma-decimal presets are explicit.
+- Unrealized P&L and risk to stop use the exact cost basis; expectancy is the true average.
+- A dividend while short is a payment, not income; position dividends stay in their currency.
+- A stop on the wrong side gives no R-multiple and a warning.
+- Currency codes are validated (closes an HTML-injection path in the dashboard).
+
+### Changed
+- **Net P&L now subtracts the entry commission pro-rata** as well as the exit commission
+  (previously only the exit fee, which overstated profit). Gross P&L is unchanged.
+- Editing, deleting or back-dating a trade recomputes all affected P&L (previously stale).
+- Obsidian export uses the ledger (the old SQL `positions` view averaged all buys ever made) and
+  preserves text below `%% notes %%`; adds `Dashboard.html`.
+- `yfinance` is an optional extra (`[yahoo]`); `trade positions` uses stored prices unless `--live`.
+- Default database: `~/.trading-journal/trades.db` when nothing is configured (an existing `./trades.db`
+  is still used). Relative paths in a config file resolve next to that file.
+- Stats never mix currencies.
+
+### Fixed
+- `entry_trade_ids` listed every buy in the ticker's history instead of the current position's.
+
 ## [0.5.0] - 2026-03-09
 
 ### Added

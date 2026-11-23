@@ -1,8 +1,11 @@
 ---
 date: "{{ date }}"
 type: trading-daily
-trades: {{ trade_count }}
-pnl: {{ total_pnl }}
+fills: {{ trades | length }}
+closed: {{ closed_trades | length }}
+{% for ccy, pnl in pnl_by_ccy.items() -%}
+pnl_{{ ccy | lower }}: {{ pnl }}
+{% endfor -%}
 tags:
   - trading
   - daily-log
@@ -10,26 +13,33 @@ tags:
 
 # Trading Log — {{ date }}
 
-## Trades
+{% if trades -%}
+## Fills
 
-| # | Ticker | Action | Shares | Price | Commission | Strategy |
-|---|--------|--------|--------|-------|------------|----------|
+| # | Ticker | Action | Qty | Price | Commission | Strategy |
+|---|--------|--------|-----|-------|------------|----------|
 {% for t in trades -%}
-| {{ t.id }} | {{ t.ticker }} | {{ t.action }} | {{ t.shares }} | ${{ "%.2f"|format(t.price) }} | ${{ "%.2f"|format(t.commission) }} | {{ t.strategy or "-" }} |
+| {{ t.id }} | [[{{ t.ticker }}]] | {{ t.action }} | {{ t.shares | num }} | {{ t.price | money(t.currency) }} | {{ t.commission | money(t.currency) }} | {{ t.strategy or "-" }} |
 {% endfor %}
-
+{% endif -%}
 {% if closed_trades -%}
-## Closed Positions
+## Realized
 
-| Ticker | Shares | Entry | Exit | Net P&L | P&L % |
-|--------|--------|-------|------|---------|-------|
+| Ticker | Side | Qty | Entry | Exit | Fees | Net P&L | % | R |
+|--------|------|-----|-------|------|------|---------|---|---|
 {% for c in closed_trades -%}
-| {{ c.ticker }} | {{ c.shares }} | ${{ "%.2f"|format(c.avg_entry_price) }} | ${{ "%.2f"|format(c.avg_exit_price) }} | ${{ "%.2f"|format(c.net_pnl) }} | {{ "%.1f"|format(c.pnl_percent) }}% |
+| [[{{ c.ticker }}]] | {{ c.direction }} | {{ c.shares | num }} | {{ c.avg_entry_price | money(c.currency) }} | {{ c.avg_exit_price | money(c.currency) }} | {{ c.total_commission | money(c.currency) }} | {{ c.net_pnl | money(c.currency) }} | {{ "%.1f" | format(c.pnl_percent) }}% | {{ ("%.2f" | format(c.r_multiple)) if c.r_multiple is not none else "-" }} |
 {% endfor %}
+{% for ccy, pnl in pnl_by_ccy.items() -%}
+**Day P&L ({{ ccy }}): {{ pnl | money(ccy) }}**
+{% endfor %}
+{% endif -%}
+{% if journal -%}
+## Journal
 
-**Daily P&L: ${{ "%.2f"|format(total_pnl) }}**
+{% for j in journal -%}
+- **{{ j.kind }}**{% if j.ticker %} · [[{{ j.ticker }}]]{% endif %}{% if j.mood %} · mood {{ j.mood }}/5{% endif %}: {{ j.text }}
+{% endfor %}
 {% endif %}
+{{ marker }}
 
-## Notes
-
-<!-- Add your daily notes here -->

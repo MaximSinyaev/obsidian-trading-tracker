@@ -1,515 +1,218 @@
-# Obsidian Trading Tracker
+# Trading Journal for AI agents
 
-Personal trading journal CLI. Tracks trades in SQLite, calculates P&L (avg cost method), and exports markdown notes to Obsidian.
+**An exact, local-first trading journal your AI agent can drive.** Tell Claude Code,
+Codex or Cursor "I bought 10 NVDA at 118.40, stop 109" or hand it a broker export,
+and ask "how did my swing trades do this quarter?". The agent records and asks;
+a deterministic ledger in a local SQLite file does all the math.
 
-## Why this exists
+LLMs are bad at trade arithmetic: average prices after partial sells, fees,
+shorts, option multipliers, splits, several currencies. This tool exists so the
+model never has to do it.
 
-Most trading journals are either paid SaaS ($30-80/mo), heavy web apps requiring Docker+MongoDB, or raw Obsidian templates that can't handle math. This tool fills the gap: a local-first CLI with a real database that plays nicely with Obsidian.
+- **Exact P&L** — average-cost ledger in `Decimal`, entry and exit fees, partial
+  closes, shorts and flips, option multipliers, splits, dividends, per-currency
+  totals. Edit or back-date any fill and everything is recomputed.
+- **Built for agents** — every command speaks JSON (`trade --json ...`), errors are
+  structured, imports are idempotent. Ships as a Claude Code plugin/skill and with
+  `AGENTS.md` for other agents.
+- **Imports** — any broker CSV, XLSX or JSON with columns auto-detected (including
+  non-English headers): Interactive Brokers (Flex and Activity Statement), Trading 212,
+  Binance, Schwab-style option histories, or JSON the agent builds from an exchange API.
+  FX conversions are not booked as positions, options get their ×100 multiplier,
+  expirations close at 0, and broker dividends and splits become events.
+- **Journal** — thesis, stop and targets per trade, post-trade reviews, mood/mistake
+  notes, tags (`ai-idea` vs manual performance), R-multiples.
+- **Interactive dashboard** — one self-contained offline HTML file: equity curve and
+  drawdown, monthly P&L, calendar heatmap, breakdowns, R distribution, positions
+  with stops, filterable trade table.
+- **Obsidian** — daily notes and one note per ticker with Dataview-friendly frontmatter.
+- **Private** — no account, no SaaS: the database never leaves your machine; your agent
+  only sees what it asks the CLI for.
 
-See [Alternatives](#alternatives) for a full comparison.
+![Dashboard demo: equity curve, breakdowns, trade search, dark mode](docs/demo.gif)
 
-## Quick Start
+<sub>Demo data. Static screenshot: [light](docs/dashboard.png), [dark](docs/dashboard-dark.png).</sub>
+
+## Install
+
+### As a Claude Code plugin
+
+```text
+/plugin marketplace add MaximSinyaev/obsidian-trading-tracker
+/plugin install trading-journal@trading-journal
+```
+
+Then just talk to Claude about your trades. The skill installs the CLI on first
+use if it is missing (via `uv`).
+
+### The CLI (for any agent or for yourself)
 
 ```bash
-# Install (requires uv — https://docs.astral.sh/uv/)
-cd obsidian-trading-tracker
-uv sync
+# with uv (https://docs.astral.sh/uv/)
+uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+# or pipx
+pipx install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
 
-# Initialize the database
-uv run trade db init
-
-# Add your first trade
-uv run trade add FRO buy 3 39.55 --commission 10 --strategy dividend-capture
-
-# Check positions
-uv run trade positions
-
-# Close the position
-uv run trade close FRO 3 43.00 --commission 10 --what-worked "Good timing"
-
-# View stats
-uv run trade stats
+trade --version
 ```
 
-## Installation
+The `yahoo` extra adds optional Yahoo Finance quotes and FX rates. Without it the
+tool has no network access at all; prices can be set by you or your agent.
 
-**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/)
+### Codex, Cursor and other agents
+
+Both read skills from `~/.agents/skills/` (all projects) or `.agents/skills/`
+(one project), so one copy serves both:
 
 ```bash
-git clone <repo-url>
-cd obsidian-trading-tracker
-uv sync
+git clone --depth 1 https://github.com/MaximSinyaev/obsidian-trading-tracker /tmp/ttt
+mkdir -p ~/.agents/skills && cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
 ```
 
-The `trade` command becomes available via `uv run trade`.
+In Codex call it with `$trading-journal`, in Cursor with `/trading-journal`, or
+just talk about your trades. Other agents: give them [`AGENTS.md`](AGENTS.md).
+Details, updating and troubleshooting: [docs/install.md](docs/install.md).
 
-To make it globally available without `uv run`:
+## Quick start
 
 ```bash
-uv tool install -e .
-trade --help
+trade add AAPL buy 10 150 -c 1 --sl 140 --strategy swing --notes "Breakout above 148"
+trade add AAPL sell 4 165 -c 1          # partial close → realized P&L printed
+trade price set AAPL 158                 # or: trade price fetch (Yahoo)
+trade positions
+trade stats
+trade review 2 --lesson "Took profits too early" --rating 4
+trade dashboard -o dashboard.html --open
 ```
 
-### Shell Completion
+Import a broker export instead of typing:
 
 ```bash
-# Bash
-trade --install-completion bash
-
-# Zsh
-trade --install-completion zsh
-
-# Fish
-trade --install-completion fish
+trade import trades.csv --dry-run        # see detected columns and skipped rows
+trade import trades.csv
+trade import flex.csv --preset ibkr      # Interactive Brokers Flex Query or Activity Statement
 ```
 
-After installing, restart your shell. You'll get tab-completion for all commands and options.
+Sample files are in [`examples/`](examples/). Optional presets for regional brokers
+(`freedom`, `tinvest`) are listed in [`references/import.md`](skills/trading-journal/references/import.md).
 
-## Configuration
-
-Create `.traderc.toml` in your project directory or home (`~/.traderc.toml`):
-
-```toml
-[database]
-path = "trades.db"                    # path to SQLite file
-
-[defaults]
-commission = 0.0                       # default commission per trade
-timezone = "Asia/Almaty"
-asset_type = "stock"                   # stock, etf, crypto, option
-source = "manual"                      # manual, broker-import, api
-
-[obsidian]
-vault_path = "/path/to/your/vault"     # Obsidian vault root
-trading_folder = "Trading"             # subfolder inside vault
-
-[fx]
-currencies = ["USD", "EUR", "RUB", "KZT"]  # for `trade fx matrix`
-base_currency = "USD"
-```
-
-The tool searches for config in this order:
-1. `.traderc.toml` in current directory
-2. `~/.traderc.toml`
-3. Built-in defaults (no config file needed for basic usage)
+**Average cost, not FIFO.** P&L uses the average-cost method. Brokers that report
+FIFO lots, and tax statements in many countries, can show a different split
+between realized and unrealized P&L for the same trades (the total over a closed
+position is identical). FIFO is on the roadmap.
 
 ## Commands
 
-### `trade add` — Record a trade
+| Area | Commands |
+|---|---|
+| Fills | `add`, `edit`, `delete`, `show`, `history [--closed]`, `review` |
+| Positions & prices | `positions [--live]`, `price set/list/fetch` |
+| Analysis | `stats [--from --to --ticker --strategy]`, `report` (JSON snapshot), `dashboard` |
+| Journal | `journal add/list/delete` |
+| Corporate actions | `event split`, `event dividend`, `event list/delete` |
+| Import / export | `import`, `sync export` (Obsidian) |
+| Maintenance | `db path/init/validate/rebuild`, `fx rate/convert/matrix` |
 
-```bash
-trade add <TICKER> <ACTION> <SHARES> <PRICE> [OPTIONS]
-```
+Add `--json` before any command for machine-readable output
+(`trade --json positions`). Full reference with response fields:
+[`skills/trading-journal/references/cli.md`](skills/trading-journal/references/cli.md).
 
-| Argument | Description |
-|----------|-------------|
-| `TICKER` | Stock symbol (auto-uppercased) |
-| `ACTION` | `buy` or `sell` |
-| `SHARES` | Number of shares |
-| `PRICE`  | Price per share |
+## How P&L is computed
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--commission` | `-c` | Commission paid |
-| `--strategy` | `-s` | Strategy name (e.g. `momentum`, `dividend-capture`) |
-| `--sl` | | Stop loss price |
-| `--tp1` | | Target price 1 |
-| `--tp2` | | Target price 2 |
-| `--confidence` | | Confidence level 1-5 |
-| `--notes` | `-n` | Free-text notes |
-| `--tags` | `-t` | Comma-separated tags |
-| `--source` | | Data source (`manual`, `broker-import`) |
-| `--group` | | Position group name |
-| `--date` / `--timestamp` | | Custom timestamp for historical imports (ISO format) |
-| `--instrument` | `-i` | Instrument type (`stock`, `option`, `future`, `crypto`) |
-| `--leverage` | | Leverage multiplier (default: 1.0) |
-
-**Examples:**
-
-```bash
-# Simple buy
-trade add AAPL buy 10 150.00
-
-# Detailed entry
-trade add FRO buy 3 39.55 \
-  --commission 10 \
-  --strategy dividend-capture \
-  --sl 36 --tp1 43 --tp2 48 \
-  --confidence 4 \
-  --tags "shipping,value" \
-  --notes "Earnings next week, expecting dividend announcement"
-
-# Short position (sell to open)
-trade add TSLA sell 5 200.00 --strategy mean-reversion
-
-# Historical import with custom date
-trade add FRO buy 3 39.55 --date "2025-01-15T10:30:00"
-
-# Option with leverage
-trade add AAPL240119C190 buy 1 5.00 --instrument option --leverage 10
-```
-
-### `trade edit` — Fix a trade
-
-```bash
-trade edit <TRADE_ID> [OPTIONS]
-```
-
-Pass any field to update. Only specified fields change.
-
-```bash
-# Fix a price typo
-trade edit 1 --price 39.60
-
-# Update multiple fields
-trade edit 1 --shares 5 --notes "Corrected share count"
-
-# Change strategy and tags
-trade edit 1 --strategy momentum --tags "tech,breakout"
-```
-
-### `trade show` — View trade details
-
-```bash
-trade show <TRADE_ID>
-```
-
-Displays all fields of a single trade in a formatted table.
-
-### `trade delete` — Remove a trade
-
-```bash
-trade delete <TRADE_ID>
-```
-
-Shows the trade and asks for confirmation before deleting. Use `--yes` / `-y` to skip confirmation.
-
-```bash
-trade delete 5          # asks for confirmation
-trade delete 5 --yes    # deletes immediately
-```
-
-### `trade close` — Close a position
-
-```bash
-trade close <TICKER> <SHARES> <PRICE> [OPTIONS]
-```
-
-Supports **partial closes** — close fewer shares than held.
-
-| Option | Description |
-|--------|-------------|
-| `--commission`, `-c` | Exit commission |
-| `--strategy`, `-s` | Strategy (overrides entry strategy) |
-| `--what-worked` | What went well (for review) |
-| `--what-failed` | What went wrong |
-| `--lesson` | Key takeaway |
-| `--rating` | Trade quality rating 1-5 |
-
-**Examples:**
-
-```bash
-# Full close (long)
-trade close FRO 3 43.00 --commission 10 --what-worked "Timed the dividend"
-
-# Partial close (sell 2 of 5 shares)
-trade close FRO 2 43.00 --commission 10
-
-# Close a short position (buy to cover)
-trade close TSLA 5 180.00 --what-worked "Good short timing"
-
-# Option expiry at zero (worthless)
-trade close AAPL240119C190 1 0
-
-# With review notes
-trade close AAPL 10 165.00 \
-  --what-worked "Held through dip" \
-  --what-failed "Exited too early" \
-  --lesson "Use trailing stop next time" \
-  --rating 4
-```
-
-### `trade positions` — View open positions with live prices
-
-```bash
-trade positions            # with live Yahoo Finance prices
-trade positions --no-live  # skip price fetching (offline)
-```
-
-Shows open positions with current market price, unrealized P&L, and a portfolio total:
+Average-cost method, the same one most retail brokers report:
 
 ```
-                                 Open Positions
-┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
-┃ Ticker ┃ Shares ┃ Avg Cost ┃ Cost Basis ┃  Price ┃ Mkt Value ┃     P&L ┃  P&L % ┃
-┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━┩
-│ FRO    │   3.00 │   $39.55 │    $118.65 │ $42.10 │   $126.30 │  +$7.65 │ +6.4%  │
-│ AAPL   │  10.00 │  $150.00 │  $1500.00  │$155.20 │  $1552.00 │ +$52.00 │ +3.5%  │
-└────────┴────────┴──────────┴────────────┴────────┴───────────┴─────────┴────────┘
-
-  Total: cost $1618.65 → value $1678.30 | P&L +$59.65 (+3.7%)
+Buy 10 @ 150, fee 1            → long 10 @ 150, open fees 1
+Sell 4 @ 165, fee 1            → gross 4 × (165 − 150) = 60
+                                  net = 60 − 0.40 (4/10 of entry fee) − 1 = 58.60
+                                  remaining long 6 @ 150 (breakeven 150.10)
 ```
 
-Prices are fetched from Yahoo Finance (free, no API key needed).
+- Buying more re-averages; selling never changes the average; a flat position resets.
+- Shorts mirror longs; a fill that crosses zero closes and opens in one step.
+- Options/futures: set `--multiplier` (100 for US equity options).
+- Splits adjust quantity and price; dividends are income, reported separately.
+- Each currency is reported on its own; nothing is silently converted.
 
-### `trade history` — Browse past trades
+Every metric is defined in
+[`references/metrics.md`](skills/trading-journal/references/metrics.md). The
+test-suite checks hand-calculated cases, broker statements and randomized
+invariants (once a book is flat, realized P&L equals cash flow minus fees).
 
-```bash
-trade history [OPTIONS]
-```
+## Configuration
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--limit` | `-l` | Number of trades to show (default: 20) |
-| `--ticker` | `-t` | Filter by ticker |
-| `--from` | | Start date (`YYYY-MM-DD`) |
-| `--to` | | End date (`YYYY-MM-DD`) |
-| `--closed` | | Show only closed trades |
-
-```bash
-trade history --limit 10
-trade history --ticker FRO --from 2026-01-01
-trade history --closed
-```
-
-### `trade stats` — Trading statistics
-
-```bash
-trade stats
-```
-
-Shows: win rate, total P&L, avg P&L, best/worst trade, total commission, avg hold time. If multiple strategies are used, includes a per-strategy breakdown.
-
-```
-     Trading Statistics
-┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
-┃ Metric           ┃   Value ┃
-┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ Total Trades     │       5 │
-│ Wins / Losses    │   3 / 2 │
-│ Win Rate         │  60.0%  │
-│ Total P&L        │ $234.50 │
-│ Avg P&L          │  $46.90 │
-│ Best Trade       │ $150.00 │
-│ Worst Trade      │ -$45.00 │
-│ Total Commission │  $50.00 │
-│ Avg Hold (days)  │     4.2 │
-└──────────────────┴─────────┘
-```
-
-### `trade db` — Database management
-
-```bash
-trade db init       # Create/migrate the database
-trade db validate   # Check data consistency
-```
-
-### `trade sync export` — Export to Obsidian
-
-```bash
-trade sync export
-```
-
-Generates markdown files in your Obsidian vault:
-
-```
-<vault>/Trading/
-├── Daily/
-│   ├── 2026-03-01.md    # daily log with all trades
-│   └── 2026-03-03.md
-└── Positions/
-    ├── FRO.md           # open position note
-    └── AAPL.md          # closed position note with review
-```
-
-Each file has YAML frontmatter compatible with [Dataview](https://github.com/blacksmithgu/obsidian-dataview):
-
-```yaml
----
-ticker: "FRO"
-type: trading-position
-status: "closed"
-shares: 3
-avg_cost: 39.55
-strategy: "dividend-capture"
----
-```
-
-**Requires** `vault_path` set in `.traderc.toml`.
-
-### `trade fx` — Currency exchange rates
-
-Three subcommands for working with FX rates (powered by Yahoo Finance, free, no API key):
-
-#### `trade fx rate` — Single pair
-
-```bash
-trade fx rate USD KZT
-#  USD/KZT = 499.7300
-
-trade fx rate EUR USD --amount 1000
-#  EUR/USD = 1.1616
-#  1000.00 EUR = 1161.60 USD
-```
-
-#### `trade fx convert` — Quick conversion
-
-```bash
-trade fx convert 1000 USD KZT
-#  1,000.00 USD = 499,730.01 KZT  (rate: 499.7300)
-```
-
-#### `trade fx matrix` — Cross-rate table
-
-```bash
-trade fx matrix                    # uses currencies from config
-trade fx matrix "USD,EUR,GBP,JPY"  # custom list
-```
-
-```
-                 FX Cross Rates
-┏━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
-┃     ┃      USD ┃      EUR ┃     RUB ┃    KZT ┃
-┡━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━┩
-│ USD │        1 │ 0.860900 │ 77.6860 │ 499.73 │
-│ EUR │   1.1616 │        1 │ 90.1490 │ 580.32 │
-│ RUB │ 0.012872 │ 0.011041 │       1 │      - │
-│ KZT │ 0.002001 │ 0.001718 │       - │      1 │
-└─────┴──────────┴──────────┴─────────┴────────┘
-```
-
-Default currencies are configured in `.traderc.toml`:
+Optional `.traderc.toml` in the current directory or your home directory:
 
 ```toml
+[database]
+path = "~/trading/trades.db"     # default: ~/.trading-journal/trades.db
+
+[defaults]
+commission = 0.0
+
+[obsidian]
+vault_path = "~/Notes"
+trading_folder = "Trading"
+
 [fx]
-currencies = ["USD", "EUR", "RUB", "KZT"]
 base_currency = "USD"
 ```
 
-## P&L Calculation
+Environment overrides: `TRADE_DB=/path/to/trades.db`, `TRADE_CONFIG=/path/to/config.toml`,
+or `trade --db PATH ...`. An existing `./trades.db` in the current directory is
+still picked up when nothing is configured.
 
-Uses the **Average Cost** method with commissions tracked separately.
+## Obsidian
 
-**Long position** (BUY to open → SELL to close):
+`trade sync export` (or `--vault ~/Notes`) writes into `<vault>/Trading/`:
 
-```
-Position: 5 FRO @ avg $39.50
-Close: 2 shares @ $43.00, commission $10
+- `Daily/YYYY-MM-DD.md` — fills, realized P&L per currency, journal entries;
+- `Positions/<TICKER>.md` — open position, every realized result, reviews, fills;
+- `Dashboard.html` — the interactive dashboard.
 
-  Gross P&L: 2 × ($43.00 - $39.50) = $7.00
-  Net P&L:   $7.00 - $10.00 = -$3.00 (commission > profit)
-  Remaining: 3 FRO @ $39.50 (avg cost unchanged)
-```
+Frontmatter fields (`pnl_usd`, `realized_pnl`, `status`, `strategy`, tags...) work
+with Dataview. Anything you write below the `%% notes %%` line survives re-exports.
 
-**Short position** (SELL to open → BUY to close):
+## Upgrading from 0.5.x
 
-```
-Position: -5 TSLA @ avg $200.00  (short)
-Close: 5 shares @ $180.00
+The database migrates automatically on first run and your reviews are kept.
+Two behaviour changes:
 
-  Gross P&L: 5 × ($200.00 - $180.00) = $100.00
-  Net P&L:   $100.00 (profit — price went down)
-```
+- **Net P&L now includes the entry commission** (pro-rata). Before, only the
+  exit commission was subtracted, which overstated profits. Gross P&L is unchanged.
+- `yfinance` is optional: install the `yahoo` extra for `--live` prices and `fx` commands.
+  `trade positions` uses stored prices unless you pass `--live`.
 
-Key rules:
-- Commission is **not** baked into avg cost — tracked separately for transparency
-- Partial close does **not** change the remaining position's avg cost
-- Each close creates both a trade (SELL for long, BUY for short) and a `closed_trades` record
-- Direction is auto-detected from net position: positive = long, negative = short
-
-## Project Structure
-
-```
-obsidian-trading-tracker/
-├── pyproject.toml              # dependencies, entry point
-├── .traderc.toml               # config example
-├── schema/
-│   ├── 001_initial.sql         # SQLite schema + views + triggers
-│   └── 002_shorts_leverage.sql # Migration: shorts, leverage, instrument, price>=0
-├── src/trading_tracker/
-│   ├── cli.py                  # Typer CLI commands
-│   ├── db.py                   # SQLite CRUD, migrations
-│   ├── models.py               # Pydantic validation models
-│   ├── analytics.py            # P&L, stats, strategy breakdown
-│   ├── config.py               # TOML config loader
-│   ├── sync.py                 # Obsidian markdown export
-│   └── templates/              # Jinja2 templates
-│       ├── daily_log.md.j2
-│       └── position_note.md.j2
-└── tests/                      # 83 tests
-    ├── test_db.py
-    ├── test_cli.py
-    └── test_analytics.py
-```
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
 ```bash
-# Run tests
-uv run pytest -v
-
-# Lint
-uv run ruff check src/ tests/
-
-# Auto-fix lint issues
-uv run ruff check --fix src/ tests/
+uv sync
+uv run pytest
 ```
 
-## Database
+The ledger (`src/trading_tracker/ledger.py`) is the only place positions and P&L
+are computed; `closed_trades` is a cache rebuilt from `trades` after each change.
 
-Data lives in a single SQLite file (default: `trades.db`).
+## Disclaimer
 
-**Tables:**
-- `trades` — every BUY/SELL entry
-- `closed_trades` — closed position records with P&L, review notes, and trade ID references
-- `schema_version` — migration tracking
+This is a record-keeping tool, not financial, investment or tax advice. Nothing
+it or an agent using it outputs (including AI-generated trade ideas) is a
+recommendation to buy or sell anything.
 
-**Views (queryable directly with any SQLite tool):**
-- `positions` — net open positions with avg cost
-- `trade_history` — all trades ordered by time
-- `daily_pnl` — daily P&L summary
-- `strategy_performance` — win rate and P&L per strategy
-
-You can query the database directly:
-
-```bash
-sqlite3 trades.db "SELECT * FROM positions"
-sqlite3 trades.db "SELECT * FROM strategy_performance"
-sqlite3 trades.db "SELECT * FROM daily_pnl"
-```
-
-## Alternatives
-
-| Tool | Type | Database | Obsidian | CLI | Free | Self-hosted |
-|------|------|----------|----------|-----|------|-------------|
-| **This tool** | CLI | SQLite | Export | Yes | Yes | Yes |
-| [Journalit](https://journalit.co) | Obsidian plugin | Markdown files | Native | No | Freemium | Yes |
-| [TradeNote](https://github.com/Eleven-Trading/TradeNote) | Web app | MongoDB | No | No | Yes | Docker |
-| [Deltalytix](https://github.com/hugodemenez/deltalytix) | Web app | PostgreSQL | No | No | Freemium | Supabase |
-| [TradeLens](https://github.com/mingi3314/tradelens) | CLI | None | Export | Yes | Yes | Yes |
-| TraderSync | SaaS | Cloud | No | No | $30-80/mo | No |
-| Edgewonk | SaaS | Cloud | No | No | ~$170/yr | No |
-
-**When to use this tool vs alternatives:**
-- You want a **local-first** journal with no cloud dependency
-- You already use **Obsidian** for notes and want trades integrated
-- You prefer **CLI** over web UIs
-- You want to **query your data** with raw SQL
-- You need **partial close** tracking with avg cost method
-
-**When to use something else:**
-- You need a polished GUI with charts — TradeNote or Deltalytix
-- You want everything inside Obsidian with no terminal — Journalit
-- You need 100+ broker auto-imports — TraderSync (paid)
-- You trade options with complex multi-leg strategies — TraderSync or Edgewonk
-
-## Roadmap
-
-- [ ] Broker CSV import (Interactive Brokers, Tradovate)
-- [ ] `trade undo` — reverse last action
-- [ ] Obsidian Dataview query examples in export templates
-- [ ] Analytics filtering by instrument type and leverage
+- **Check the numbers against your broker** before relying on them for taxes.
+  P&L uses the average-cost method; tax rules in many countries (and some
+  brokers' lot reports) use FIFO, so per-trade results can differ.
+- **Your data and your LLM provider.** The database stays on your machine and the
+  CLI has no telemetry. But whatever your agent reads from the CLI (trades,
+  positions, P&L) is sent to the model provider your agent uses, under that
+  provider's terms. Use a local model or ask the agent for aggregates only if that matters to you.
+- **Optional quotes** (`[yahoo]` extra) come from Yahoo Finance via `yfinance`,
+  an unofficial API with its own terms; they can be delayed or wrong.
+- Provided "as is", without warranty, under the MIT license. Keep backups of
+  your `trades.db`.
 
 ## License
 
-MIT
+[MIT](LICENSE)

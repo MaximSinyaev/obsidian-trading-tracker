@@ -1,0 +1,9 @@
+Action,Time,ISIN,Ticker,Name,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Currency conversion fee,Currency (Currency conversion fee),ID
+Deposit,2025-01-02 09:00:11,,,,,,,,,,1000.00,EUR,,,,,dep-0001
+Market buy,2025-01-15 14:30:05,US0378331005,AAPL,Apple,0.5000000000,236.00,USD,1.03000,,,114.73,EUR,,,0.17,EUR,EOF100001
+Limit buy,2025-02-12 15:02:44,US0378331005,AAPL,Apple,0.4123000000,232.50,USD,1.03500,,,92.76,EUR,,,0.14,EUR,EOF100002
+Market buy,2025-03-03 08:15:30,IE00B3XXRP09,VUSA,Vanguard S&P 500 UCITS ETF (Dist),2.0000000000,9412.00,GBX,82.90000,,,227.41,EUR,,,0.34,EUR,EOF100003
+Market sell,2025-04-08 13:45:09,US0378331005,AAPL,Apple,0.6000000000,172.40,USD,1.09500,-41.79,EUR,94.33,EUR,,,0.14,EUR,EOF100004
+Dividend (Dividend),2025-05-15 10:11:02,US0378331005,AAPL,Apple,0.3123000000,0.26,USD,1.12800,,,0.06,EUR,0.01,USD,,,
+Market sell,2025-06-02 09:30:00,IE00B3XXRP09,VUSA,Vanguard S&P 500 UCITS ETF (Dist),2.0000000000,9880.00,GBX,84.30000,7.33,EUR,234.05,EUR,,,0.35,EUR,EOF100005
+Interest on cash,2025-06-30 23:59:59,,,,,,,,,,0.84,EUR,,,,,int-0006

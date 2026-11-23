@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Run the `trade` CLI: the installed one if present, otherwise straight from GitHub via uvx.
+# Usage: scripts/trade --json positions
+set -euo pipefail
+if command -v trade >/dev/null 2>&1; then
+  exec trade "$@"
+fi
+if command -v uvx >/dev/null 2>&1; then
+  exec uvx --quiet --from "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0" trade "$@"
+fi
+echo '{"ok": false, "error": "trade CLI not found. Install uv (https://docs.astral.sh/uv/) or run: pipx install \"obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0\""}'
+exit 127

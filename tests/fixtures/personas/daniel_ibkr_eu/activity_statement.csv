@@ -1,0 +1,16 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers Ireland Limited
+Statement,Data,Period,"January 1, 2025 - March 31, 2025"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Base Currency,EUR
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,EUR,ASML,"2025-03-04, 09:12:07",10,680.28,690.1,-6802.8,-3.33,6806.13,0,98.2,O;P
+Trades,SubTotal,,Stocks,EUR,ASML,,10,,,-6802.8,-3.33,6806.13,0,98.2,
+Trades,Data,Order,Stocks,USD,TSLA,"2025-01-10, 15:39:55",-10,255,251.2,2550,-1,-2549,0,38,O
+Trades,Data,Order,Stocks,USD,TSLA,"2025-02-03, 09:45:01",10,230.5,236.4,-2305,-1,2549,243,-59,C
+Trades,SubTotal,,Stocks,USD,TSLA,,0,,,245,-2,0,243,-21,
+Trades,Total,,Stocks,EUR,,,,,,,,,,,
+Dividends,Header,Currency,Date,Description,Amount
+Dividends,Data,EUR,2025-05-02,ASML(NL0010273215) Cash Dividend EUR 1.52 per Share (Ordinary Dividend),15.2
+Withholding Tax,Header,Currency,Date,Description,Amount,Code
+Withholding Tax,Data,EUR,2025-05-02,ASML(NL0010273215) Cash Dividend EUR 1.52 per Share - NL Tax,-2.28,
