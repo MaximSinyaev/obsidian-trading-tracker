@@ -10,6 +10,7 @@ dependencies = [
     "rich>=13.0.0",
     "pydantic>=2.0.0",
     "jinja2>=3.1.0",
+    "openpyxl>=3.1.0",
 ]
 keywords = ["trading", "journal", "pnl", "obsidian", "claude", "agent-skill", "portfolio"]
 
@@ -20,7 +21,7 @@ yahoo = ["yfinance>=1.2.0"]
 Homepage = "https://github.com/MaximSinyaev/obsidian-trading-tracker"
 
 [project.scripts]
-trade = "trading_tracker.cli:app"
+trade = "trading_tracker.cli:run"
 
 [dependency-groups]
 dev = [

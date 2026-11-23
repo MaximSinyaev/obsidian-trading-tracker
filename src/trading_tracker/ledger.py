@@ -383,15 +383,23 @@ def _apply_event(ev: dict[str, Any], states: dict[str, _State],
         return
     if ev["kind"] == "dividend":
         net_amount = ev["amount"] - ev["tax"]
+        if st is not None and st.net < -EPS and ev["amount"] > 0:
+            # A short position pays the dividend to the lender (no tax withheld).
+            net_amount = -ev["amount"]
+            warnings.append(
+                f"event {ev['id']}: dividend on {ev['ticker']} while short; recorded as a payment of "
+                f"{money(ev['amount'])}"
+            )
         currency = ev["currency"] or (st.currency if st else "USD")
         if st is not None:
             st.dividends += net_amount
+        paid = net_amount < 0 and ev["amount"] > 0
         income.append({
             "event_id": ev["id"],
             "ticker": ev["ticker"],
             "timestamp": ev["timestamp"],
-            "gross": money(ev["amount"]),
-            "tax": money(ev["tax"]),
+            "gross": money(-ev["amount"] if paid else ev["amount"]),
+            "tax": 0.0 if paid else money(ev["tax"]),
             "net": money(net_amount),
             "currency": currency,
         })

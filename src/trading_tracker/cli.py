@@ -554,7 +554,7 @@ def history(
 @app.command("import")
 def import_cmd(
     file: Annotated[str, typer.Argument(help="CSV or JSON file, or '-' for stdin")],
-    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | tinvest")] = "generic",
+    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | tinvest | freedom")] = "generic",
     mapping: Annotated[Optional[list[str]], typer.Option("--map", help="field=Column override, repeatable")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Parse and report, write nothing")] = False,
     currency: Annotated[Optional[str], typer.Option("--currency", "--ccy", help="Default currency")] = None,
@@ -591,6 +591,8 @@ def import_cmd(
         console.print(f"[green]{verb} {len(res.imported)} trades[/green] "
                       f"(duplicates skipped: {len(res.duplicates)}, unparsable rows: {len(res.skipped)})")
         console.print(f"[dim]Columns: {', '.join(f'{k}←{v}' for k, v in res.columns.items())}[/dim]")
+        for n in res.notes:
+            console.print(f"[dim]{n}[/dim]")
         for s in res.skipped[:10]:
             console.print(f"  [yellow]row {s['row']}: {s['reason']}[/yellow]")
         if len(res.skipped) > 10:
@@ -1150,3 +1152,27 @@ def fx_convert(
 
 if __name__ == "__main__":
     app()
+
+
+def run() -> None:
+    """Console entry point. In --json mode, argument errors are JSON too."""
+    import click
+
+    argv = sys.argv[1:]
+    if "--json" not in argv:
+        app()
+        return
+    try:
+        code = app(args=argv, prog_name="trade", standalone_mode=False)
+    except click.ClickException as exc:
+        sys.stdout.write(json.dumps({"ok": False, "error": exc.format_message(),
+                                     "usage_error": True}, ensure_ascii=False) + "\n")
+        sys.exit(1)
+    except click.exceptions.Abort:
+        sys.stdout.write(json.dumps({"ok": False, "error": "aborted"}) + "\n")
+        sys.exit(1)
+    except Exception as exc:  # never print a traceback to an agent
+        sys.stdout.write(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                                    ensure_ascii=False) + "\n")
+        sys.exit(1)
+    sys.exit(code if isinstance(code, int) else 0)

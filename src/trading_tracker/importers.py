@@ -38,9 +38,9 @@ ALIASES: dict[str, list[str]] = {
                "operationtype", "тип", "типоперации", "операция", "направление", "видсделки"],
     "shares": ["shares", "quantity", "qty", "units", "volume", "filledqty", "количество",
                "колво", "кол", "объем", "количествобумаг"],
-    "price": ["price", "tradeprice", "fillprice", "executionprice", "avgprice", "averageprice",
+    "price": ["price", "tprice", "tradeprice", "fillprice", "executionprice", "avgprice", "averageprice",
               "цена", "ценасделки", "ценазаединицу"],
-    "commission": ["commission", "commissions", "fee", "fees", "ibcommission", "brokercommission",
+    "commission": ["commission", "commissions", "fee", "fees", "ibcommission", "commfee", "brokercommission",
                    "комиссия", "комиссияброкера", "комиссиябиржи"],
     "timestamp": ["timestamp", "datetime", "date", "time", "tradedate", "tradetime", "executedat",
                   "executiontime", "filledat", "дата", "датаивремя", "датасделки", "датаисполнения",
@@ -55,11 +55,14 @@ ALIASES: dict[str, list[str]] = {
     "notes": ["notes", "note", "comment", "description", "комментарий", "примечание"],
     "tags": ["tags", "теги"],
     "stop_loss": ["stoploss", "stop", "sl", "стоп"],
+    "commission_currency": ["commissioncurrency", "commcurrency", "feecurrency", "ibcommissioncurrency",
+                            "валютакомиссии"],
 }
 
-BUY_WORDS = {"buy", "b", "bot", "bought", "long", "buytoopen", "buytoclose", "покупка",
+# "long"/"short" are deliberately absent: in many exports they describe a position, not a fill.
+BUY_WORDS = {"buy", "b", "bot", "bought", "buytoopen", "buytoclose", "покупка",
              "купить", "куплено", "buy_to_open", "buy_to_cover", "cover"}
-SELL_WORDS = {"sell", "s", "sld", "sold", "short", "selltoopen", "selltoclose", "продажа",
+SELL_WORDS = {"sell", "s", "sld", "sold", "selltoopen", "selltoclose", "продажа",
               "продать", "продано", "sell_short", "sell_to_close"}
 
 INSTRUMENT_MAP = {
@@ -97,16 +100,39 @@ PRESETS: dict[str, dict[str, Any]] = {
         "prefer": {"timestamp": ["дата", "датаивремя"], "action": ["типоперации", "операция"]},
         "source": "tinvest",
         "dayfirst": True,
+        "decimal_comma": True,
+    },
+    "freedom": {
+        # Freedom Finance / Freedom24 / Tradernet trade report (CSV or XLS): Russian or English
+        # headers, "1 555 200,00" numbers, dd.mm.yyyy dates, tickers like AAPL.US.
+        "prefer": {"timestamp": ["датасделки", "tradedate", "date"],
+                   "external_id": ["idсделки", "tradeid", "номерсделки"],
+                   "action": ["операция", "operation"], "ticker": ["тикер", "ticker"]},
+        "source": "freedom",
+        "dayfirst": True,
+        "decimal_comma": True,
+        "strip_suffixes": [".US", ".KZ", ".EU"],
+        "skip_fx": True,
     },
 }
+
+# Operations that look like a sale or purchase but are not trades.
+NON_TRADE_WORDS = ("репо", "repo", "конвертац", "conversion", "dividend", "дивиденд", "купон",
+                   "coupon", "налог", "tax", "fee", "commission", "комиссия", "transfer", "перевод")
 
 
 def _norm(name: str) -> str:
     return re.sub(r"[\s_\-./\\()#№]+", "", name.strip().lower())
 
 
-def parse_number(value: Any) -> float | None:
-    """Parse '1 234,56', '1,234.56', '-12.5', '(12.50)', '$10' → float. Empty → None."""
+def parse_number(value: Any, decimal_comma: bool | None = None) -> float | None:
+    """Parse '1 234,56', '1,234.56', '-12.5', '(12.50)', '$10' → float. Empty → None.
+
+    A single comma is ambiguous: '1,000' is a thousand in US exports and 1.0 in
+    Russian ones. With ``decimal_comma=None`` a comma followed by exactly three
+    digits is read as a thousands separator; presets for comma-decimal brokers
+    pass ``decimal_comma=True``.
+    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -120,7 +146,12 @@ def parse_number(value: Any) -> float | None:
     if "," in s and "." in s:
         s = s.replace(",", "") if s.rfind(",") < s.rfind(".") else s.replace(".", "").replace(",", ".")
     elif "," in s:
-        s = s.replace(",", ".") if s.count(",") == 1 else s.replace(",", "")
+        if s.count(",") > 1:
+            s = s.replace(",", "")
+        elif decimal_comma or (decimal_comma is None and not re.search(r",\d{3}$", s)):
+            s = s.replace(",", ".")
+        else:
+            s = s.replace(",", "")
     try:
         n = float(s)
     except ValueError:
@@ -154,6 +185,8 @@ def parse_timestamp(value: Any, *, dayfirst: bool = False, date_format: str | No
 def parse_side(value: Any, quantity: float | None) -> str | None:
     if value is not None and str(value).strip():
         word = _norm(str(value))
+        if any(w in word for w in NON_TRADE_WORDS):
+            return None
         if word in BUY_WORDS or any(word.startswith(w) for w in ("buy", "покуп")):
             return "BUY"
         if word in SELL_WORDS or any(word.startswith(w) for w in ("sell", "продаж")):
@@ -172,6 +205,7 @@ class ImportResult:
     imported: list[dict[str, Any]] = field(default_factory=list)
     duplicates: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -184,6 +218,7 @@ class ImportResult:
             "imported": self.imported,
             "duplicates": self.duplicates,
             "skipped": self.skipped,
+            "notes": self.notes,
         }
 
 
@@ -207,10 +242,62 @@ def map_columns(headers: list[str], preset: str = "generic",
     return mapping
 
 
+def _header_score(cells: list[Any]) -> int:
+    known = {a for aliases in ALIASES.values() for a in aliases}
+    return sum(1 for c in cells if c is not None and _norm(str(c)) in known)
+
+
+def _rows_from_table(table: list[list[Any]]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Find the header row (exports often start with a preamble) and build dict rows.
+
+    Handles Interactive Brokers activity statements, where every line starts with a
+    section name and a Header/Data marker: only Data lines of the chosen section are kept.
+    """
+    table = [r for r in table if any(c not in (None, "") for c in r)]
+    if not table:
+        return [], []
+    best = max(range(min(len(table), 40)), key=lambda i: (_header_score(table[i]), -i))
+    header = [str(c).strip() if c is not None else "" for c in table[best]]
+    section = None
+    if len(header) > 2 and header[1].lower() == "header":
+        section = header[0]
+    rows: list[dict[str, Any]] = []
+    for r in table[best + 1:]:
+        cells = [c.strip() if isinstance(c, str) else c for c in r]
+        if section is not None:
+            if len(cells) < 2 or cells[0] != section or str(cells[1]).lower() != "data":
+                continue
+        elif [str(c) if c is not None else "" for c in cells[: len(header)]] == header:
+            continue  # repeated header line
+        rows.append({h: (cells[i] if i < len(cells) else None) for i, h in enumerate(header) if h})
+    return [h for h in header if h], rows
+
+
+def _read_xlsx(path: Path) -> list[list[Any]]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover
+        raise ValueError("Reading .xlsx needs openpyxl: pip install openpyxl") from exc
+    wb = load_workbook(path, read_only=True, data_only=True)
+    best: list[list[Any]] = []
+    for ws in wb.worksheets:  # pick the sheet that looks most like a trade list
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+        head = max((_header_score(r) for r in rows[:40]), default=0)
+        if head > (max((_header_score(r) for r in best[:40]), default=0) if best else -1):
+            best = rows
+    out = []
+    for r in best:
+        out.append([c.isoformat(sep=" ") if hasattr(c, "isoformat") else c for c in r])
+    return out
+
+
 def read_rows(path: str | Path | None = None, text: str | None = None) -> tuple[list[str], list[dict[str, Any]], str]:
-    """Read CSV or JSON rows. Returns (headers, rows, format)."""
+    """Read CSV, XLSX or JSON rows. Returns (headers, rows, format)."""
     if text is None:
         p = Path(path)  # type: ignore[arg-type]
+        if p.suffix.lower() in (".xlsx", ".xlsm"):
+            headers, rows = _rows_from_table(_read_xlsx(p))
+            return headers, rows, "xlsx"
         raw = p.read_bytes()
         for enc in ("utf-8-sig", "cp1251", "latin-1"):
             try:
@@ -231,14 +318,15 @@ def read_rows(path: str | Path | None = None, text: str | None = None) -> tuple[
                 if k not in headers:
                     headers.append(k)
         return headers, rows, "json"
-    sample = text[:8192]
+    lines = text.splitlines()
+    sample = "\n".join(lines[:60])
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
     except csv.Error:
         dialect = csv.excel
-    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-    rows = [r for r in reader if any((v or "").strip() for v in r.values() if isinstance(v, str))]
-    return list(reader.fieldnames or []), rows, "csv"
+    table = list(csv.reader(io.StringIO(text), dialect=dialect))
+    headers, rows = _rows_from_table(table)
+    return headers, rows, "csv"
 
 
 def import_rows(
@@ -271,6 +359,11 @@ def import_rows(
     touched: set[str] = set()
     seen_ids: set[str] = set()
 
+    dc = cfg.get("decimal_comma")
+
+    def num(v: Any) -> float | None:
+        return parse_number(v, dc)
+
     def get(row: dict[str, Any], fld: str) -> Any:
         col = mapping.get(fld)
         return row.get(col) if col else None
@@ -280,27 +373,60 @@ def import_rows(
     if time_col == mapping.get("timestamp"):
         time_col = None
 
-    for i, row in enumerate(rows, start=1):
+    # Many brokers export newest-first. Fills sharing a timestamp are replayed in
+    # insertion order, so import oldest-first: reverse files sorted descending.
+    numbered = list(enumerate(rows, start=1))
+    stamps = []
+    for _, row in numbered:
+        try:
+            raw = get(row, "timestamp")
+            if time_col and row.get(time_col):
+                raw = f"{raw} {row[time_col]}"
+            stamps.append(parse_timestamp(raw, dayfirst=cfg.get("dayfirst", False), date_format=date_format))
+        except (ValueError, TypeError):
+            continue
+    reversed_order = len(stamps) > 1 and stamps[0] > stamps[-1]
+    if reversed_order:
+        numbered.reverse()
+        result.notes.append("file is sorted newest-first; rows were imported oldest-first")
+
+    for i, row in numbered:
         if time_col and row.get(time_col) and mapping.get("timestamp"):
             row = {**row, mapping["timestamp"]: f"{row[mapping['timestamp']]} {row[time_col]}".strip()}
         try:
             ticker = str(get(row, "ticker") or "").strip().upper()
             if not ticker:
                 raise ValueError("missing ticker")
-            qty = parse_number(get(row, "shares"))
+            qty = num(get(row, "shares"))
             side = parse_side(get(row, "action"), qty)
+            for suffix in cfg.get("strip_suffixes", []):
+                if ticker.endswith(suffix):
+                    ticker = ticker[: -len(suffix)]
+            if cfg.get("skip_fx") and ("/" in ticker or _norm(str(get(row, "instrument") or "")) in {"fx", "cash", "валюта"}):
+                raise ValueError(f"currency conversion {ticker}, not a trade")
             if side is None:
-                raise ValueError(f"not a buy/sell row (side={get(row, 'action')!r})")
+                raw_side = get(row, "action")
+                hint = ""
+                if raw_side and any(w in _norm(str(raw_side)) for w in ("dividend", "дивиденд")):
+                    hint = "; record it with `trade event dividend TICKER AMOUNT --tax T --date D`"
+                raise ValueError(f"not a buy/sell row (side={raw_side!r}){hint}")
             if qty is None or qty == 0:
                 raise ValueError("missing quantity")
-            price = parse_number(get(row, "price"))
+            price = num(get(row, "price"))
             if price is None:
                 raise ValueError("missing price")
             ts = parse_timestamp(get(row, "timestamp"), dayfirst=cfg.get("dayfirst", False),
                                  date_format=date_format)
-            commission = abs(parse_number(get(row, "commission")) or 0.0)
+            commission = abs(num(get(row, "commission")) or 0.0)
             currency = str(get(row, "currency") or defaults.get("currency") or "USD").strip().upper()
-            multiplier = parse_number(get(row, "multiplier")) or defaults.get("multiplier") or 1.0
+            fee_note = None
+            fee_ccy = str(get(row, "commission_currency") or "").strip().upper()
+            if commission and fee_ccy and fee_ccy != currency:
+                # Never convert silently: keep the fee out of P&L and say so.
+                fee_note = f"commission {commission:g} {fee_ccy} not included (trade currency {currency})"
+                result.notes.append(f"row {i}: {fee_note}; add it with `trade edit` once converted")
+                commission = 0.0
+            multiplier = num(get(row, "multiplier")) or defaults.get("multiplier") or 1.0
             instr_raw = get(row, "instrument")
             instrument = INSTRUMENT_MAP.get(_norm(str(instr_raw)), str(instr_raw).lower()) \
                 if instr_raw else defaults.get("instrument", "stock")
@@ -314,8 +440,8 @@ def import_rows(
                 "commission": commission, "timestamp": ts, "currency": currency,
                 "multiplier": multiplier, "instrument": instrument, "external_id": ext,
                 "strategy": get(row, "strategy") or defaults.get("strategy"),
-                "notes": get(row, "notes"), "tags": tags,
-                "stop_loss": parse_number(get(row, "stop_loss")),
+                "notes": "; ".join(x for x in (get(row, "notes"), fee_note) if x) or None, "tags": tags,
+                "stop_loss": num(get(row, "stop_loss")),
             }
         except (ValueError, TypeError) as exc:
             result.skipped.append({"row": i, "reason": str(exc)})

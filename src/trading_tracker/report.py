@@ -143,12 +143,15 @@ def build_report(
     price_provider: str = "cache",
 ) -> dict[str, Any]:
     """Build the full snapshot. Filters apply to realized trades by close date."""
+    start = db.normalize_date_filter(start, "--from")
+    end = db.normalize_date_filter(end, "--to")
     result = db.run_ledger(conn)
     trades_by_id = {t["id"]: t for t in db.get_trades(conn)}
     events = db.get_events(conn)
     closed_rows = {r["exit_trade_id"]: r for r in db.get_closed_trades(conn)}
 
     closed: list[dict[str, Any]] = []
+    stop_warnings: list[str] = []
     for lot in result.realized:
         row = lot.to_row()
         cached = closed_rows.get(lot.exit_trade_id, {})
@@ -171,7 +174,15 @@ def build_report(
         row["exit_notes"] = exit_t.get("notes")
         stop = _adjusted_stop(entries, events, lot.ticker, lot.closed_at, latest=False)
         row["stop_loss"] = _r(stop, 6)
-        risk = abs(float(lot.avg_entry_price) - stop) * float(lot.shares) * float(lot.multiplier) if stop else None
+        risk = None
+        if stop:
+            # Initial risk only makes sense with the stop on the losing side of the entry.
+            dist = (float(lot.avg_entry_price) - stop) * (1 if lot.direction == "long" else -1)
+            if dist > 0:
+                risk = dist * float(lot.shares) * float(lot.multiplier)
+            else:
+                stop_warnings.append(f"{lot.ticker} (closed {lot.closed_at[:10]}): stop {stop:g} is on the "
+                                     f"wrong side of entry {float(lot.avg_entry_price):g}; R not computed")
         row["initial_risk"] = _r(risk)
         row["r_multiple"] = _r(row["net_pnl"] / risk) if risk else None
         if ticker and row["ticker"] != ticker.upper():
@@ -244,7 +255,7 @@ def build_report(
                            _group(c_closed, lambda c: [_weekday(c["closed_at"])])],
         }
 
-    warnings = list(result.warnings)
+    warnings = list(result.warnings) + stop_warnings[:10]
     no_stop = [p["ticker"] for p in open_positions if p["stop_loss"] is None]
     if no_stop:
         warnings.append("open positions without a stop-loss: " + ", ".join(no_stop))

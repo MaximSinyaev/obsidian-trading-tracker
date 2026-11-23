@@ -80,7 +80,9 @@ def normalize_timestamp(value: str | None) -> str:
     """Parse an ISO-ish timestamp and return a sortable ISO string.
 
     Accepts ``2025-01-15``, ``2025-01-15 10:30``, ``2025-01-15T10:30:00`` and
-    timezone-aware variants. Timezone offsets are kept as given.
+    timezone-aware variants. Times with an offset are converted to this
+    machine's local time and stored without an offset, so they sort correctly
+    against fills typed in local time.
     """
     if value is None or str(value).strip() == "":
         return datetime.now().isoformat(timespec="seconds")
@@ -89,7 +91,36 @@ def normalize_timestamp(value: str | None) -> str:
         dt = datetime.fromisoformat(raw)
     except ValueError as exc:
         raise ValueError(f"Unrecognised timestamp {value!r}; use ISO format YYYY-MM-DD[THH:MM[:SS]]") from exc
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
     return dt.isoformat(timespec="seconds")
+
+
+def normalize_date_filter(value: str | None, name: str = "date") -> str | None:
+    """Validate a --from/--to bound: YYYY, YYYY-MM, YYYY-MM-DD or a full ISO timestamp."""
+    if value is None or str(value).strip() == "":
+        return None
+    raw = str(value).strip()
+    for fmt in ("%Y", "%Y-%m", "%Y-%m-%d"):
+        try:
+            datetime.strptime(raw, fmt)
+            return raw
+        except ValueError:
+            continue
+    try:
+        return normalize_timestamp(raw)
+    except ValueError:
+        raise ValueError(f"invalid {name} {value!r}; use YYYY-MM-DD (or YYYY-MM, YYYY)") from None
+
+
+_ACTION_WORDS = {"BUY": "BUY", "B": "BUY", "BOT": "BUY", "BOUGHT": "BUY", "ПОКУПКА": "BUY",
+                 "SELL": "SELL", "S": "SELL", "SLD": "SELL", "SOLD": "SELL", "ПРОДАЖА": "SELL"}
+
+
+def normalize_action(action: str) -> str:
+    """BUY/SELL and their common broker spellings; anything else is returned for validation to reject."""
+    key = str(action or "").strip().upper()
+    return _ACTION_WORDS.get(key, key)
 
 
 def _validate_trade(action: str, shares: float, price: float, commission: float,
@@ -152,7 +183,7 @@ def add_trade(
     Realized P&L for any position it reduces is recomputed automatically.
     """
     ticker_u = ticker.upper().strip()
-    action_u = action.upper().strip()
+    action_u = normalize_action(action)
     commission = commission or 0
     multiplier = multiplier or 1.0
     _validate_trade(action_u, shares, price, commission, multiplier)
@@ -195,7 +226,7 @@ def edit_trade(conn: sqlite3.Connection, trade_id: int, **fields: Any) -> bool:
     if "ticker" in updates:
         updates["ticker"] = updates["ticker"].upper().strip()
     if "action" in updates:
-        updates["action"] = updates["action"].upper().strip()
+        updates["action"] = normalize_action(updates["action"])
     if "currency" in updates:
         updates["currency"] = updates["currency"].upper()
     if "timestamp" in updates:
@@ -405,6 +436,8 @@ def get_history(
     closed_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Trade history (or realized P&L records) with optional filters."""
+    from_date = normalize_date_filter(from_date, "--from")
+    to_date = normalize_date_filter(to_date, "--to")
     table, ts_col = ("closed_trades", "closed_at") if closed_only else ("trade_history", "timestamp")
     query = f"SELECT * FROM {table} WHERE 1=1"
     params: list[Any] = []
@@ -415,9 +448,9 @@ def get_history(
         query += f" AND {ts_col} >= ?"
         params.append(from_date)
     if to_date:
-        # A bare date means "through the end of that day".
+        # A bare date, month or year means "through the end of that period".
         query += f" AND {ts_col} <= ?"
-        params.append(to_date + "T23:59:59" if len(to_date) == 10 else to_date)
+        params.append(to_date + "~" if len(to_date) <= 10 else to_date)
     query += f" ORDER BY {ts_col} DESC" + (", exit_trade_id DESC" if closed_only else ", id DESC")
     query += " LIMIT ?"
     params.append(limit)
@@ -433,7 +466,16 @@ def set_review(conn: sqlite3.Connection, exit_trade_id: int, **fields: Any) -> b
     if not review:
         return False
     if get_realized_for_trade(conn, exit_trade_id) is None:
-        raise ValueError(f"Trade #{exit_trade_id} did not close (part of) a position")
+        row = conn.execute("SELECT ticker FROM trades WHERE id = ?", (exit_trade_id,)).fetchone()
+        hint = ""
+        if row is not None:
+            ids = [r["exit_trade_id"] for r in conn.execute(
+                "SELECT exit_trade_id FROM closed_trades WHERE ticker = ? ORDER BY closed_at DESC LIMIT 5",
+                (row["ticker"],))]
+            if ids:
+                hint = f"; closing fills for {row['ticker']}: {', '.join(f'#{i}' for i in ids)}"
+        raise ValueError(f"Trade #{exit_trade_id} did not close (part of) a position. "
+                         f"Review the closing fill (realized.exit_trade_id){hint}")
     if "rating" in review and not 1 <= int(review["rating"]) <= 5:
         raise ValueError("rating must be 1-5")
     cols = ", ".join(review)
