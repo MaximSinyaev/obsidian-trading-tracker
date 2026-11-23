@@ -37,11 +37,14 @@ machine-readable line** starting with `JSON:`. The scorecard parses this line,
 not the prose, so a differently worded field above cannot break scoring:
 
 ```
-JSON: {"id":"idea-20261124-rsp-rotation","ticker":"RSP","dir":"long","type":"macro","horizon":"structural","ref_price":182.40,"ref_ts":"2026-11-24T15:30:00Z","ccy":"USD","stop":170,"t1":196,"t2":205,"time_stop":"2026-05-24","confidence":3}
+JSON: {"id":"idea-20261124-rsp-rotation","ticker":"RSP","dir":"long","type":"macro","horizon":"structural","ref_price":182.40,"ref_ts":"2026-11-24T15:30:00Z","ccy":"USD","stop":170,"t1":196,"t2":205,"time_stop":"2027-05-24","confidence":3}
 ```
 
 `dir` is `long` or `short`; dates are ISO; numbers are plain numbers. If a
-value is unknown use `null`, and never invent a reference price.
+value is unknown use `null`, and never invent a reference price. `ccy` is the
+**quote currency of the instrument** (`USD`, `EUR`, `GBX`, `USDT`...), not the
+user's base currency. Before writing, check: `time_stop` is after `ref_ts`;
+for `long`, `stop` < `ref_price` < `t1`; for `short`, the reverse.
 
 ## 2. When the user takes the idea: the trade carries it
 
@@ -58,9 +61,10 @@ trade --json add RSP buy 5 181.90 --commission 0.22 \
 
 - `--sl` (alias `--stop`) is the stop; the journal uses it for R multiples and
   risk to stop. Never record an AI idea trade without it.
-- Any tag starting with `ai` puts the trade in the AI bucket of
-  `trade report` (`by_origin`), so AI vs. manual results appear without extra
-  work. Do not put `ai-*` tags on the user's own ideas.
+- A tag that is exactly `ai` or starts with `ai-` puts the trade in the AI
+  bucket of `trade report` (`by_origin`), so AI vs. manual results appear
+  without extra work (`airlines` stays manual). Do not put `ai-*` tags on the
+  user's own ideas.
 - `--group` is stored but not yet reported; the idea id must also be in tags.
 
 ## 3. Reviews, invalidations, expiry
@@ -89,7 +93,8 @@ claim never mixes them:
 
 ### A. Idea quality: every idea counts
 
-1. `trade --json journal list --limit 1000`, keep entries tagged `ai-idea`,
+1. `trade --json journal list --limit 1000` (it filters only by ticker, so
+   filter by tag, kind and date yourself), keep entries tagged `ai-idea`,
    group by idea id, parse the `JSON:` line of each `IDEA` plan entry.
 2. Assign every idea exactly one status. Nothing is dropped:
    - `closed`: has a `CLOSED` review entry → use its close price.

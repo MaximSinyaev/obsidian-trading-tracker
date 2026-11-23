@@ -36,10 +36,10 @@ bias = "broker house view"
 
 [risk]
 event_size_factor = 0.5          # geopolitical / commodity / single-event ideas
-event_time_stop_days = 3         # trading days, unless hedged
+event_time_stop_days = 3         # trading days unless hedged (calendar days for 24/7 markets)
 leveraged_size_factor = 0.4
-leveraged_max_days = 5           # 3x products
-max_ticker_share = 0.30
+leveraged_max_days = 5           # 3x products; calendar days for 24/7 markets
+max_ticker_share = 0.30          # share of portfolio in base_currency, converted with `trade fx rate`
 max_correlated_positions = 2
 
 [research]
