@@ -32,7 +32,7 @@ for _ in range(70):
     day += timedelta(days=rng.randint(1, 5))
 db.add_trade(conn, "NVDA", "buy", 10, 118.4, commission=1.42, stop_loss=109, tags=["ai-idea"],
              strategy="swing", notes="AI capex thesis", timestamp="2025-11-03T15:40")
-db.add_trade(conn, "KMGZ", "buy", 20, 9050, currency="KZT", timestamp="2025-10-01T10:00", stop_loss=8500)
+db.add_trade(conn, "ASML", "buy", 4, 642.5, currency="EUR", timestamp="2025-10-01T10:00", stop_loss=598)
 db.set_price(conn, "NVDA", 131.05, source="demo")
 db.add_event(conn, "XOM", "dividend", amount=9.9, tax=1.49, timestamp="2025-06-10")
 db.add_journal_entry(conn, "Chased a gap at the open again. Wait 15 minutes.", kind="mistake", mood=2, ticker="TSLA", date="2025-05-14")
