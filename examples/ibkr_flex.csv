@@ -1,0 +1,5 @@
+"ClientAccountID","CurrencyPrimary","AssetClass","Symbol","DateTime","Quantity","TradePrice","IBCommission","Buy/Sell","TradeID","Multiplier"
+"U1234567","USD","STK","MSFT","20250115;103000","10","400.5","-1","BUY","1001","1"
+"U1234567","USD","STK","MSFT","20250220;153000","-10","420.25","-1.02","SELL","1002","1"
+"U1234567","USD","OPT","SPY 250321C00580000","20250303;100000","1","4.10","-0.65","BUY","1003","100"
+"U1234567","USD","OPT","SPY 250321C00580000","20250310;100000","-1","6.35","-0.65","SELL","1004","100"

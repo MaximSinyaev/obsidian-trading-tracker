@@ -267,8 +267,11 @@ def build_report(
 
 
 def _origin(c: dict[str, Any]) -> list[str]:
-    """'ai' when any tag starts with 'ai' (ai-idea, ai-bullish, ...), else 'manual'."""
-    return ["ai" if any(str(t).lower().startswith("ai") for t in c.get("tags") or []) else "manual"]
+    """'ai' when a tag is 'ai' or starts with 'ai-' / 'ai_' (ai-idea, ai-bullish...), else 'manual'."""
+    def is_ai(tag: str) -> bool:
+        t = str(tag).lower()
+        return t == "ai" or t.startswith(("ai-", "ai_"))
+    return ["ai" if any(is_ai(t) for t in c.get("tags") or []) else "manual"]
 
 
 def _weekday(ts: str) -> str:

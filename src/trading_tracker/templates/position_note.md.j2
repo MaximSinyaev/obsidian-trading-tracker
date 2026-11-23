@@ -2,48 +2,72 @@
 ticker: "{{ ticker }}"
 type: trading-position
 status: "{{ status }}"
-shares: {{ shares }}
-avg_cost: {{ "%.2f"|format(avg_cost) }}
-cost_basis: {{ "%.2f"|format(cost_basis) }}
+currency: "{{ currency }}"
+{% if position -%}
+direction: "{{ position.direction }}"
+shares: {{ position.shares }}
+avg_cost: {{ position.avg_cost }}
+cost_basis: {{ position.cost_basis }}
+{% if position.stop_loss is not none %}stop_loss: {{ position.stop_loss }}
+{% endif -%}
+{% if position.unrealized_pnl is not none %}unrealized_pnl: {{ position.unrealized_pnl }}
+{% endif -%}
+{% endif -%}
+realized_pnl: {{ realized }}
 {% if strategy -%}
 strategy: "{{ strategy }}"
 {% endif -%}
 first_trade: "{{ first_trade }}"
 last_trade: "{{ last_trade }}"
-trade_count: {{ trade_count }}
+fills: {{ fills | length }}
 tags:
   - trading
   - position
+{% for t in tags %}  - "{{ t }}"
+{% endfor -%}
 ---
 
-# {{ ticker }} — {{ status | capitalize }} Position
+# {{ ticker }} — {{ status | capitalize }}
 
-## Summary
+{% if position -%}
+## Open position
 
-- **Shares:** {{ shares }}
-- **Avg Cost:** ${{ "%.2f"|format(avg_cost) }}
-- **Cost Basis:** ${{ "%.2f"|format(cost_basis) }}
-- **First Trade:** {{ first_trade[:10] }}
-- **Trade Count:** {{ trade_count }}
+- **Side:** {{ position.direction }} {{ position.shares | num }}
+- **Avg cost:** {{ position.avg_cost | money(currency) }} (breakeven incl. fees {{ position.breakeven_price | money(currency) }})
+- **Cost basis:** {{ position.cost_basis | money(currency) }}
+- **Stop:** {{ position.stop_loss | money(currency) if position.stop_loss is not none else "not set" }}
+{% if position.current_price is not none -%}
+- **Last:** {{ position.current_price | money(currency) }} ({{ position.price_source }}, {{ (position.price_as_of or "")[:10] }}) → unrealized {{ position.unrealized_pnl | money(currency) }} ({{ "%.1f" | format(position.unrealized_pnl_pct) }}%)
+{% endif -%}
+{% if position.thesis %}- **Thesis:** {{ position.thesis }}
+{% endif %}
+{% endif -%}
+{% if closed -%}
+## Realized results
 
-## Trade History
+**Total realized:** {{ realized | money(currency) }}
 
-| # | Action | Shares | Price | Date |
-|---|--------|--------|-------|------|
-{% for t in trades -%}
-| {{ t.id }} | {{ t.action }} | {{ t.shares }} | ${{ "%.2f"|format(t.price) }} | {{ t.timestamp[:10] }} |
+| Closed | Side | Qty | Entry | Exit | Fees | Net P&L | % | R |
+|--------|------|-----|-------|------|------|---------|---|---|
+{% for c in closed -%}
+| {{ c.closed_at[:10] }} | {{ c.direction }} | {{ c.shares | num }} | {{ c.avg_entry_price | money(currency) }} | {{ c.avg_exit_price | money(currency) }} | {{ c.total_commission | money(currency) }} | {{ c.net_pnl | money(currency) }} | {{ "%.1f" | format(c.pnl_percent) }}% | {{ ("%.2f" | format(c.r_multiple)) if c.r_multiple is not none else "-" }} |
+{% endfor %}
+{% for c in closed if c.what_worked or c.what_failed or c.lesson -%}
+### Review — {{ c.closed_at[:10] }}{% if c.rating %} ({{ c.rating }}/5){% endif %}
+
+{% if c.what_worked %}- **Worked:** {{ c.what_worked }}
+{% endif %}{% if c.what_failed %}- **Failed:** {{ c.what_failed }}
+{% endif %}{% if c.lesson %}- **Lesson:** {{ c.lesson }}
+{% endif %}
+{% endfor -%}
+{% endif -%}
+## Fills
+
+| # | Date | Action | Qty | Price | Commission | Notes |
+|---|------|--------|-----|-------|------------|-------|
+{% for t in fills -%}
+| {{ t.id }} | {{ t.timestamp[:10] }} | {{ t.action }} | {{ t.shares | num }} | {{ t.price | money(t.currency) }} | {{ t.commission | money(t.currency) }} | {{ (t.notes or "") | replace("|", "/") | replace("\n", " ") }} |
 {% endfor %}
 
-{% if closed_info -%}
-## Closed
+{{ marker }}
 
-- **Exit Price:** ${{ "%.2f"|format(closed_info.avg_exit_price) }}
-- **Net P&L:** ${{ "%.2f"|format(closed_info.net_pnl) }} ({{ "%.1f"|format(closed_info.pnl_percent) }}%)
-{% if closed_info.what_worked %}- **What Worked:** {{ closed_info.what_worked }}{% endif %}
-{% if closed_info.what_failed %}- **What Failed:** {{ closed_info.what_failed }}{% endif %}
-{% if closed_info.lesson %}- **Lesson:** {{ closed_info.lesson }}{% endif %}
-{% endif %}
-
-## Notes
-
-<!-- Add your position notes here -->

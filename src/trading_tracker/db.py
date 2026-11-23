@@ -369,19 +369,30 @@ def get_positions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [positions[k] for k in sorted(positions)]
 
 
+def _closed_row(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    for k in ("entry_trade_ids", "exit_trade_ids"):
+        if isinstance(d.get(k), str):
+            try:
+                d[k] = json.loads(d[k])
+            except json.JSONDecodeError:
+                pass
+    return d
+
+
 def get_closed_trades(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Realized P&L records (most recent first)."""
     rows = conn.execute(
         "SELECT * FROM closed_trades ORDER BY closed_at DESC, exit_trade_id DESC"
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_closed_row(r) for r in rows]
 
 
 def get_realized_for_trade(conn: sqlite3.Connection, trade_id: int) -> dict[str, Any] | None:
     row = conn.execute(
         "SELECT * FROM closed_trades WHERE exit_trade_id = ?", (trade_id,)
     ).fetchone()
-    return dict(row) if row else None
+    return _closed_row(row) if row else None
 
 
 def get_history(
@@ -410,7 +421,7 @@ def get_history(
     query += f" ORDER BY {ts_col} DESC" + (", exit_trade_id DESC" if closed_only else ", id DESC")
     query += " LIMIT ?"
     params.append(limit)
-    return [dict(r) for r in conn.execute(query, params).fetchall()]
+    return [_closed_row(r) for r in conn.execute(query, params).fetchall()]
 
 
 # ── reviews ─────────────────────────────────────────────────────────────────
