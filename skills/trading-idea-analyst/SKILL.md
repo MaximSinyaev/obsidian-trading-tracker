@@ -154,7 +154,8 @@ These are process rules. The user can override the numbers in `sources.toml`
    it from `trade --json history` / `trade --json report`.
 9. **Stop on the right side.** A long's stop is below the reference price, a
    short's above it; targets on the opposite side. Check this before writing
-   any idea or trade, because the journal accepts either.
+   any idea or trade. `trade add` returns `warnings` for a missing or
+   wrong-side stop: read them and fix the record if one appears.
 10. **Options** (only if allowed in `instruments_allowed`): state whether the
    stop is on the premium or on the underlying, and the maximum loss (premium
    paid for long options; for short puts strike × multiplier − premium, for

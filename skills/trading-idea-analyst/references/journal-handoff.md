@@ -93,8 +93,8 @@ claim never mixes them:
 
 ### A. Idea quality: every idea counts
 
-1. `trade --json journal list --limit 1000` (it filters only by ticker, so
-   filter by tag, kind and date yourself), keep entries tagged `ai-idea`,
+1. `trade --json journal list --tag ai-idea --limit 1000` (add `--kind plan`
+   / `--kind review` and `--from`/`--to` to narrow it), keep entries tagged `ai-idea`,
    group by idea id, parse the `JSON:` line of each `IDEA` plan entry.
 2. Assign every idea exactly one status. Nothing is dropped:
    - `closed`: has a `CLOSED` review entry → use its close price.
