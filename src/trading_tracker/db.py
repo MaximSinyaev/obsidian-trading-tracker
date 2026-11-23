@@ -145,6 +145,7 @@ def add_trade(
     multiplier: float = 1.0,
     external_id: str | None = None,
     commit: bool = True,
+    rebuild: bool = True,
 ) -> int:
     """Insert a trade and return its id.
 
@@ -174,7 +175,8 @@ def add_trade(
         ),
     )
     trade_id: int = cur.lastrowid  # type: ignore[assignment]
-    rebuild_closed_trades(conn, [ticker_u])
+    if rebuild:
+        rebuild_closed_trades(conn, [ticker_u])
     if commit:
         conn.commit()
     return trade_id
