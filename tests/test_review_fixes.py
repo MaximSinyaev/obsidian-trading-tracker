@@ -226,7 +226,7 @@ def test_freedom_json_report(conn):
     text = json.dumps(FREEDOM_REPORT, ensure_ascii=False)
     res = importers.import_file(conn, text=text)
     assert res.source == "freedom"
-    assert {r["ticker"] for r in res.imported} == {"AAPL", "SPY.21MAR2025.C600", "SAP"}
+    assert {r["ticker"] for r in res.imported} == {"AAPL", "SPY.21MAR2025.C600", "SAP.EU"}
     assert any("currency conversion" in s["reason"] for s in res.skipped)
     opt = [r for r in res.imported if r["instrument"] == "option"]
     assert opt and all(r["multiplier"] == 100 for r in opt)
@@ -234,7 +234,7 @@ def test_freedom_json_report(conn):
     assert closed["AAPL"]["gross_pnl"] == 60.0  # matches the broker's "profit"
     assert closed["SPY.21MAR2025.C600"]["gross_pnl"] == -250.0
     assert any("not included" in n for n in res.notes)  # USD fee on an EUR trade is not converted
-    sap = [r for r in res.imported if r["ticker"] == "SAP"][0]
+    sap = [r for r in res.imported if r["ticker"] == "SAP.EU"][0]
     assert sap["commission"] == 0.0 and "1.5 USD" in sap["notes"]
     assert len(res.dividends) == 1 and res.dividends[0]["ticker"] == "AAPL"
     again = importers.import_file(conn, text=text)

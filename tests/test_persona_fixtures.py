@@ -26,10 +26,6 @@ KNOWN_ISSUES: dict[str, str] = {
     # Freedom Finance
     "aidar_freedom_kz/freedom_csv::not_positions": "USD/KZT conversion row imported as a stock position",
     "aidar_freedom_kz/freedom_csv::positions": "USD/KZT conversion shows up as an open position",
-    "aidar_freedom_kz/freedom_json::import": "nested broker-report JSON crashes: 'dictionary update sequence element #0'",
-    "aidar_freedom_kz/freedom_json::positions": "JSON import fails",
-    "aidar_freedom_kz/freedom_json::realized": "JSON import fails",
-    "aidar_freedom_kz/freedom_json::not_positions": "JSON import fails",
     # T-Invest
     "olga_tinvest_ru/tinvest_operations_cp1251::positions": "CNYRUB_TOM currency purchase becomes a position",
     "olga_tinvest_ru/tinvest_operations_cp1251::not_positions": "CNYRUB_TOM currency purchase becomes a position",
@@ -37,10 +33,6 @@ KNOWN_ISSUES: dict[str, str] = {
     # IBKR
     "daniel_ibkr_eu/ibkr_flex_multi_section::positions": "EUR.USD FX row becomes a position",
     "daniel_ibkr_eu/ibkr_flex_multi_section::not_positions": "EUR.USD FX row becomes a position",
-    "daniel_ibkr_eu/ibkr_activity_statement::import": "Activity Statement format (Section,Header/Data,...) not supported",
-    "daniel_ibkr_eu/ibkr_activity_statement::positions": "Activity Statement import fails",
-    "daniel_ibkr_eu/ibkr_activity_statement::realized": "Activity Statement import fails",
-    "daniel_ibkr_eu/ibkr_activity_statement::not_positions": "Activity Statement import fails",
     # Schwab options
     "jess_options_us/schwab_transactions::positions": "'as of' dates skipped, so the assignment stock buy is lost",
     "jess_options_us/schwab_transactions::not_positions": "Expired/Assigned rows ignored: options stay open forever",

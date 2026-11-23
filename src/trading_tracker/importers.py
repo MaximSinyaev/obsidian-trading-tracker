@@ -117,7 +117,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "source": "freedom",
         "dayfirst": True,
         "decimal_comma": True,
-        "strip_suffixes": [".US", ".KZ", ".EU"],
+        "strip_suffixes": [".US"],  # US listings match manual `trade add AAPL`; other markets keep theirs
         "skip_fx": True,
     },
 }
