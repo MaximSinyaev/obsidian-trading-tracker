@@ -15,8 +15,11 @@ Claude Code plugin / agent skill.
   `trades` in `Decimal`; `closed_trades` is a cache rebuilt after every change.
 - **`--json` on every command** with `{"ok": ..., "data"|"error": ...}` responses; `--db` global option,
   `TRADE_DB` / `TRADE_CONFIG` environment variables.
-- **Import** (`trade import`): any CSV with auto-detected columns (English/Russian), presets for
-  Interactive Brokers Flex and T-Invest, JSON lists from agents, `--dry-run`, `--map`, idempotent re-imports.
+- **Import** (`trade import`): any CSV/XLSX/JSON with auto-detected columns, Interactive Brokers
+  Flex and Activity Statements (dividends and splits become events), Trading 212, Binance (pairs,
+  coin fees), Schwab-style option histories (expiry/assignment), optional Freedom Finance and
+  T-Invest presets, JSON lists from agents, `--dry-run`, `--map`, idempotent re-imports.
+  FX conversions are never booked as positions; fees in another currency are never silently converted.
 - **Prices** (`trade price set/list/fetch`): stored quotes with source and time mark positions to market.
 - **Corporate events**: `trade event split` and `trade event dividend`.
 - **Journal**: `trade journal add/list/delete`, `trade review` for post-trade reviews (kept across edits).
@@ -26,7 +29,20 @@ Claude Code plugin / agent skill.
 - Contract multiplier (`--multiplier`), `--setup`, `--external-id`, breakeven price, risk to stop,
   warnings for positions without a stop-loss.
 - Claude Code plugin (`.claude-plugin/`), skill `skills/trading-journal/`, `AGENTS.md`, examples.
-- Tests: ledger invariants on randomized books, importers, report, JSON CLI, migration (340 total).
+- `trade add` returns `warnings` for a missing or wrong-side stop; `journal list --tag --kind --from --to`.
+- Tests: ledger invariants on randomized books, importers, six broker personas, report, JSON CLI,
+  migration (420+ total).
+
+### Fixed after review
+- `--json` errors are always JSON, including bad arguments and unexpected exceptions.
+- Invalid `--from/--to` dates are rejected instead of returning wrong numbers.
+- Fills with a time-zone offset are ordered by the actual instant; v0.5 timestamps and
+  lowercase tickers are normalised on upgrade.
+- `1,000` is read as a thousand (US exports); comma-decimal presets are explicit.
+- Unrealized P&L and risk to stop use the exact cost basis; expectancy is the true average.
+- A dividend while short is a payment, not income; position dividends stay in their currency.
+- A stop on the wrong side gives no R-multiple and a warning.
+- Currency codes are validated (closes an HTML-injection path in the dashboard).
 
 ### Changed
 - **Net P&L now subtracts the entry commission pro-rata** as well as the exit commission

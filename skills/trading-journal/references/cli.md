@@ -2,7 +2,9 @@
 
 Global options go before the command: `trade --json [--db PATH] <command>`.
 Every JSON response is one line: `{"ok": true, "data": ...}` or
-`{"ok": false, "error": "message"}` with exit code 1.
+`{"ok": false, "error": "message"}` with exit code 1. That includes bad arguments
+(`"usage_error": true`) and invalid dates. Date filters accept `YYYY`, `YYYY-MM`,
+`YYYY-MM-DD` or a full timestamp; anything else is an error, never a silent empty result.
 
 Dates are ISO (`2025-03-10`, `2025-03-10T15:42`, `2025-03-10T15:42:00+05:00`).
 Money fields are rounded to cents; prices and quantities keep full precision.
@@ -11,7 +13,7 @@ Money fields are rounded to cents; prices and quantities keep full precision.
 
 | Command | Purpose | `data` |
 |---|---|---|
-| `add TICKER buy\|sell QTY PRICE [opts]` | record a fill | `{trade, realized|null, position|null}` |
+| `add TICKER buy\|sell QTY PRICE [opts]` | record a fill (`b/bot/s/sld` accepted) | `{trade, realized|null, position|null, warnings[]}` |
 | `edit ID [--price --shares --commission --date --ticker --action --sl --tp1 --tp2 --notes --tags --strategy --setup --currency --multiplier --instrument --confidence]` | fix a fill, P&L recomputed | `{updated, fields, trade}` |
 | `delete ID --yes` | remove a fill (`--yes` is required in JSON mode) | `{deleted}` |
 | `show ID` | one fill and the P&L it realized | `{trade, realized}` |
@@ -83,7 +85,7 @@ entry_notes, exit_notes), income[], journal[], warnings[], method}`
 | Command | `data` |
 |---|---|
 | `journal add TEXT [--ticker --mood 1-5 --kind note\|plan\|lesson\|mistake\|review --tags --date]` | `{entry_id}` |
-| `journal list [--ticker --limit]` | `{entries: [{id, date, ticker, kind, mood, text, tags[]}]}` |
+| `journal list [--ticker --kind --tag --from --to --limit]` | `{entries: [{id, date, ticker, kind, mood, text, tags[]}]}` |
 | `journal delete ID` | `{deleted}` |
 | `event split TICKER RATIO [--date]` (4 = 4-for-1, 0.1 = 1-for-10) | `{event_id, position}` |
 | `event dividend TICKER AMOUNT [--tax --ccy --date]` | `{event_id, net}` |
@@ -93,7 +95,7 @@ entry_notes, exit_notes), income[], journal[], warnings[], method}`
 
 | Command | `data` |
 |---|---|
-| `import FILE\|- [--preset generic\|ibkr\|tinvest --map field=Column --dry-run --ccy --source --strategy --date-format FMT]` | `{imported_count, duplicate_count, skipped_count, columns, imported[], duplicates[], skipped[{row, reason}]}` |
+| `import FILE\|- [--preset generic\|ibkr\|freedom\|tinvest --map field=Column --dry-run --ccy --source --strategy --date-format FMT]` | `{imported_count, duplicate_count, skipped_count, dividend_count, columns, imported[], duplicates[], skipped[{row, reason}], dividends[], events[], notes[]}` |
 | `sync export [--vault PATH]` | `{files, vault}` |
 | `db path` / `db init` / `db validate` / `db rebuild` | |
 | `fx rate USD KZT`, `fx convert 100 USD KZT`, `fx matrix` (Yahoo) | human output |

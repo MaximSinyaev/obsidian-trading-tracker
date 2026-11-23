@@ -15,15 +15,19 @@ model never has to do it.
 - **Built for agents** — every command speaks JSON (`trade --json ...`), errors are
   structured, imports are idempotent. Ships as a Claude Code plugin/skill and with
   `AGENTS.md` for other agents.
-- **Imports** — any broker CSV (columns auto-detected, English and Russian),
-  Interactive Brokers Flex, T-Invest, or JSON built by the agent from an exchange API.
+- **Imports** — any broker CSV, XLSX or JSON with columns auto-detected (including
+  non-English headers): Interactive Brokers (Flex and Activity Statement), Trading 212,
+  Binance, Schwab-style option histories, or JSON the agent builds from an exchange API.
+  FX conversions are not booked as positions, options get their ×100 multiplier,
+  expirations close at 0, and broker dividends and splits become events.
 - **Journal** — thesis, stop and targets per trade, post-trade reviews, mood/mistake
   notes, tags (`ai-idea` vs manual performance), R-multiples.
 - **Interactive dashboard** — one self-contained offline HTML file: equity curve and
   drawdown, monthly P&L, calendar heatmap, breakdowns, R distribution, positions
   with stops, filterable trade table.
 - **Obsidian** — daily notes and one note per ticker with Dataview-friendly frontmatter.
-- **Private** — your trades stay in a SQLite file on your machine. No account, no cloud.
+- **Private** — no account, no SaaS: the database never leaves your machine; your agent
+  only sees what it asks the CLI for.
 
 ![Dashboard demo: equity curve, breakdowns, trade search, dark mode](docs/demo.gif)
 
@@ -45,9 +49,9 @@ use if it is missing (via `uv`).
 
 ```bash
 # with uv (https://docs.astral.sh/uv/)
-uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker"
+uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
 # or pipx
-pipx install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker"
+pipx install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
 
 trade --version
 ```
@@ -86,11 +90,16 @@ Import a broker export instead of typing:
 ```bash
 trade import trades.csv --dry-run        # see detected columns and skipped rows
 trade import trades.csv
-trade import flex.csv --preset ibkr      # Interactive Brokers Flex Query (Trades)
-trade import ops.csv --preset tinvest    # T-Invest / Tinkoff
+trade import flex.csv --preset ibkr      # Interactive Brokers Flex Query or Activity Statement
 ```
 
-Sample files are in [`examples/`](examples/).
+Sample files are in [`examples/`](examples/). Optional presets for regional brokers
+(`freedom`, `tinvest`) are listed in [`references/import.md`](skills/trading-journal/references/import.md).
+
+**Average cost, not FIFO.** P&L uses the average-cost method. Brokers that report
+FIFO lots, and tax statements in many countries, can show a different split
+between realized and unrealized P&L for the same trades (the total over a closed
+position is identical). FIFO is on the roadmap.
 
 ## Commands
 

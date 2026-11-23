@@ -8,7 +8,7 @@ user asks about their trades, positions, P&L or trading performance, use it.
 2. Always call it in JSON mode: `trade --json <command>`. Responses are
    `{"ok": true, "data": ...}` or `{"ok": false, "error": "..."}`.
 3. Install once if missing:
-   `uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker"`
+   `uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"`
    (or use `skills/trading-journal/scripts/trade`, which falls back to `uvx`).
 
 The full playbook is in [`skills/trading-journal/SKILL.md`](skills/trading-journal/SKILL.md),

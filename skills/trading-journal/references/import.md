@@ -22,8 +22,23 @@ JSON list. Always run with `--dry-run` first on an unfamiliar file and check
 
 \* If there is no side column, a negative quantity means SELL.
 
-Values: `Buy/BOT/B/Покупка` → BUY, `Sell/SLD/S/Продажа` → SELL; other rows
-(dividends, transfers, fees) are skipped and listed in `skipped`. Numbers like
+Values: `Buy/BOT/B/Market buy/Buy to Open` → BUY, `Sell/SLD/S/Limit sell/Sell to Close`
+→ SELL; `Expired/Assigned/Exercised` close the open position at 0. `Long`/`Short` are
+not accepted as sides (they often describe a position). Other rows (dividends,
+transfers, interest, repo) are skipped and listed in `skipped` with a hint.
+
+Also handled automatically:
+
+- currency conversions (`EUR.USD`, `USD/KZT`, asset class `CASH`) are skipped, never positions;
+- option symbols (`SPY 250321P00560000`, `SPY 03/21/2025 560.00 P`, `+XLU.21MAR2025.C78`) get
+  `instrument=option`, multiplier 100;
+- crypto pairs (`BTCUSDT`) are priced in the quote currency; units glued to numbers
+  (`0.05000000BTC`) are fine; a fee paid in the bought coin reduces the quantity;
+- London prices in pence (`GBX`) are converted to GBP;
+- a fee charged in another currency than the trade is **not** converted: it is left out
+  of P&L, noted on the trade and reported in `notes`;
+- fee rows reported separately with the same time and ticker are attached to the fill;
+- newest-first files are imported oldest-first. Numbers like
 `1 234,56`, `1,234.56`, `(12.50)` are understood; commissions are taken as
 absolute values. Dates: ISO, `20250115;103000` (IBKR), `15.01.2025 10:30`,
 `01/15/2025` (US; use `--date-format %d/%m/%Y` for day-first). A separate
@@ -33,10 +48,14 @@ Override detection with `--map field=Column` (repeatable).
 
 ## Presets
 
-- `--preset ibkr` — Interactive Brokers Flex Query, Trades section (CSV).
-  Uses `DateTime`, `Buy/Sell`, `TradeID`, `IBCommission`, `Multiplier`, `AssetClass`.
-- `--preset tinvest` — T-Invest / Tinkoff operations export with Russian headers.
-- `--preset generic` (default) — everything else.
+- `--preset generic` (default) — any CSV/XLSX/JSON, including Trading 212, Binance,
+  Schwab-style histories.
+- `--preset ibkr` — Interactive Brokers Flex Query (Trades plus CashTransactions and
+  CorporateActions sections: dividends, withholding tax and splits become events) and
+  Activity Statements. Uses `DateTime`, `Buy/Sell`, `TradeID`, `IBCommission`, `Multiplier`.
+- Optional regional presets: `--preset freedom` (Freedom Finance / Tradernet CSV or the
+  JSON broker report, which is detected automatically and also brings dividends;
+  `.US` suffixes are dropped) and `--preset tinvest` (T-Invest operations export).
 
 ## De-duplication
 

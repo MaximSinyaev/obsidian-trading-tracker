@@ -1,6 +1,6 @@
 ---
 name: trading-journal
-description: Keep an exact trading journal for the user - record buys/sells, import broker CSVs (IBKR, T-Invest, any CSV/JSON), show open positions and realized/unrealized P&L, stats (win rate, profit factor, R, drawdown), post-trade reviews, dividends and splits, and render an interactive HTML dashboard or Obsidian notes. Use whenever the user mentions their trades, positions, portfolio P&L, trading journal or trading performance. All numbers come from a deterministic local ledger, never from the model.
+description: Keep an exact trading journal for the user - record buys/sells, import broker exports (IBKR, Trading 212, Binance, any CSV/XLSX/JSON), show open positions and realized/unrealized P&L, stats (win rate, profit factor, R, drawdown), post-trade reviews, dividends and splits, and render an interactive HTML dashboard or Obsidian notes. Use whenever the user mentions their trades, positions, portfolio P&L, trading journal or trading performance. All numbers come from a deterministic local ledger, never from the model.
 ---
 
 # Trading journal
@@ -34,7 +34,7 @@ First use: run `trade --json db path` to see which database is used
 or `trade --db /path/x.db`). If the CLI is missing, install it once:
 
 ```bash
-uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker"
+uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
 ```
 
 ## Workflows
@@ -59,11 +59,14 @@ Options: `--instrument option --multiplier 100` and the per-share premium as pri
 trade --json import trades.csv --dry-run          # check columns and rows first
 trade --json import trades.csv                    # then import
 trade --json import flex.csv --preset ibkr        # Interactive Brokers Flex Query
-trade --json import ops.csv --preset tinvest      # T-Invest / Tinkoff export
 trade --json import - < fills.json                # JSON list you built from an API
 ```
 
-Columns are auto-detected (English and Russian names). If detection fails, map
+Columns are auto-detected (English and several other languages). Currency
+conversions are skipped, option symbols get ×100, expirations close at 0, and
+dividends or splits in the file become events (`dividends`, `events` in the response).
+Read `notes` and tell the user about them (e.g. fees in another currency that were
+not converted). If detection fails, map
 them: `--map ticker=Instrument --map timestamp="Exec Time"`. Re-importing the
 same file is safe (duplicates are skipped). Report skipped rows to the user.
 See `references/import.md` for formats and the JSON schema.
