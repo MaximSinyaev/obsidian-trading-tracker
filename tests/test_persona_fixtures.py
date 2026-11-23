@@ -22,33 +22,7 @@ from trading_tracker.cli import app
 ROOT = Path(__file__).resolve().parent / "fixtures" / "personas"
 runner = CliRunner()
 
-KNOWN_ISSUES: dict[str, str] = {
-    # Freedom Finance
-    "aidar_freedom_kz/freedom_csv::not_positions": "USD/KZT conversion row imported as a stock position",
-    "aidar_freedom_kz/freedom_csv::positions": "USD/KZT conversion shows up as an open position",
-    # T-Invest
-    "olga_tinvest_ru/tinvest_operations_cp1251::positions": "CNYRUB_TOM currency purchase becomes a position",
-    "olga_tinvest_ru/tinvest_operations_cp1251::not_positions": "CNYRUB_TOM currency purchase becomes a position",
-    "olga_tinvest_ru/tinvest_operations_cp1251::realized": "commissions come as separate rows and are dropped: net == gross",
-    # IBKR
-    "daniel_ibkr_eu/ibkr_flex_multi_section::positions": "EUR.USD FX row becomes a position",
-    "daniel_ibkr_eu/ibkr_flex_multi_section::not_positions": "EUR.USD FX row becomes a position",
-    # Schwab options
-    "jess_options_us/schwab_transactions::positions": "'as of' dates skipped, so the assignment stock buy is lost",
-    "jess_options_us/schwab_transactions::not_positions": "Expired/Assigned rows ignored: options stay open forever",
-    "jess_options_us/schwab_transactions::realized": "options get multiplier 1, 'Fees & Comm' not read, expiry/assignment not closed",
-    "aidar_freedom_kz/freedom_csv::realized": "option +XLU.21MAR2025.C78 gets multiplier 1: -2.15 instead of -215",
-    # Trading 212
-    "sofia_trading212_eu/trading212_history::import": "'No. of shares'/'Price / share' not detected; 'Market buy'/'Limit sell' not parsed as sides",
-    "sofia_trading212_eu/trading212_history::positions": "import fails",
-    "sofia_trading212_eu/trading212_history::not_positions": "import fails",
-    "sofia_trading212_eu/trading212_history::realized": "import fails; GBX pence not normalised",
-    # Binance
-    "ken_crypto_binance/binance_spot_history::import": "'Pair', 'Date(UTC)', 'Executed' not detected",
-    "ken_crypto_binance/binance_spot_history::positions": "import fails; with --map: base-asset fee ignored, currency USD not USDT",
-    "ken_crypto_binance/binance_spot_history::not_positions": "import fails; with --map: '1.20000000ETH' parsed as missing quantity (E read as exponent)",
-    "ken_crypto_binance/binance_spot_history::realized": "import fails; with --map: identical fills de-duplicated by fingerprint",
-}
+KNOWN_ISSUES: dict[str, str] = {}
 
 
 def _canon(ticker: str) -> str:

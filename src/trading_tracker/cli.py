@@ -288,7 +288,23 @@ def add(
                 f"@ {_fmt(position['avg_cost'], ccy)} (breakeven {_fmt(position['breakeven_price'], ccy)})"
             )
 
-    _emit({"trade": trade, "realized": realized, "position": position}, human)
+    warnings: list[str] = []
+    if position is not None and realized is None:
+        stop = trade.get("stop_loss")
+        if stop is None:
+            warnings.append(f"no stop-loss on {trade['ticker']}: ask the user for one, then "
+                            f"`trade edit {trade_id} --sl PRICE`")
+        elif (position["direction"] == "long" and stop >= price) or (position["direction"] == "short" and stop <= price):
+            warnings.append(f"stop-loss {stop:g} is on the wrong side of the entry {price:g} for a "
+                            f"{position['direction']} position; R-multiple will not be computed")
+
+    def human_with_warnings():
+        human()
+        for w in warnings:
+            console.print(f"  [yellow]⚠ {w}[/yellow]")
+
+    _emit({"trade": trade, "realized": realized, "position": position, "warnings": warnings},
+          human_with_warnings)
 
 
 @app.command()
@@ -763,11 +779,20 @@ def journal_add(
 @journal_app.command("list")
 def journal_list(
     ticker: Annotated[Optional[str], typer.Option("--ticker", "-t")] = None,
+    kind: Annotated[Optional[str], typer.Option("--kind", "-k")] = None,
+    tag: Annotated[Optional[str], typer.Option("--tag")] = None,
+    from_date: Annotated[Optional[str], typer.Option("--from")] = None,
+    to_date: Annotated[Optional[str], typer.Option("--to")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l")] = 20,
 ):
     """Show recent journal entries."""
     conn = _get_conn()
-    entries = db.get_journal(conn, ticker=ticker, limit=limit)
+    try:
+        entries = db.get_journal(conn, ticker=ticker, kind=kind, tag=tag, from_date=from_date,
+                                 to_date=to_date, limit=limit)
+    except ValueError as exc:
+        _fail(str(exc))
+        return
 
     def human():
         if not entries:

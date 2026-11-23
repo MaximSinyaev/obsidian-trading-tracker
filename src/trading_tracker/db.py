@@ -624,13 +624,28 @@ def add_journal_entry(conn: sqlite3.Connection, text: str, *, date: str | None =
     return cur.lastrowid  # type: ignore[return-value]
 
 
-def get_journal(conn: sqlite3.Connection, *, ticker: str | None = None,
+def get_journal(conn: sqlite3.Connection, *, ticker: str | None = None, kind: str | None = None,
+                tag: str | None = None, from_date: str | None = None, to_date: str | None = None,
                 limit: int = 1000) -> list[dict[str, Any]]:
-    q = "SELECT * FROM journal_entries"
+    q = "SELECT * FROM journal_entries WHERE 1=1"
     params: list[Any] = []
     if ticker:
-        q += " WHERE ticker = ?"
+        q += " AND ticker = ?"
         params.append(ticker.upper())
+    if kind:
+        q += " AND kind = ?"
+        params.append(kind.lower())
+    from_date = normalize_date_filter(from_date, "--from")
+    to_date = normalize_date_filter(to_date, "--to")
+    if from_date:
+        q += " AND date >= ?"
+        params.append(from_date)
+    if to_date:
+        q += " AND date <= ?"
+        params.append(to_date + "~" if len(to_date) <= 10 else to_date)
+    if tag:
+        q += " AND EXISTS (SELECT 1 FROM json_each(COALESCE(tags, '[]')) WHERE lower(value) = lower(?))"
+        params.append(tag)
     q += " ORDER BY date DESC, id DESC LIMIT ?"
     params.append(limit)
     out = []

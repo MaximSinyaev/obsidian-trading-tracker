@@ -298,3 +298,24 @@ def test_review_error_suggests_closing_fill(conn):
     db.add_trade(conn, "A", "sell", 1, 11, timestamp="2025-01-02")
     with pytest.raises(ValueError, match="#2"):
         db.set_review(conn, 1, lesson="x")
+
+
+def test_add_warns_about_missing_or_wrong_side_stop(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("TRADE_DB", str(tmp_path / "w.db"))
+    r = CliRunner()
+    out = json.loads(r.invoke(cli.app, ["--json", "add", "A", "buy", "1", "100"]).output.splitlines()[-1])
+    assert any("no stop-loss" in w for w in out["data"]["warnings"])
+    out = json.loads(r.invoke(cli.app, ["--json", "add", "B", "buy", "1", "100", "--sl", "110"]).output.splitlines()[-1])
+    assert any("wrong side" in w for w in out["data"]["warnings"])
+    out = json.loads(r.invoke(cli.app, ["--json", "add", "C", "sell", "1", "100", "--sl", "105"]).output.splitlines()[-1])
+    assert out["data"]["warnings"] == []
+
+
+def test_journal_filters(conn):
+    db.add_journal_entry(conn, "idea one", kind="plan", tags=["ai-idea"], date="2025-03-01")
+    db.add_journal_entry(conn, "note two", kind="note", date="2025-04-01")
+    assert [e["text"] for e in db.get_journal(conn, tag="AI-IDEA")] == ["idea one"]
+    assert [e["text"] for e in db.get_journal(conn, kind="note")] == ["note two"]
+    assert [e["text"] for e in db.get_journal(conn, from_date="2025-04")] == ["note two"]
