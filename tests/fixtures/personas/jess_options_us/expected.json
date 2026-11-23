@@ -1,0 +1,22 @@
+{
+  "persona": "Jess, 37, Austin. Продаёт кэш-обеспеченные путы и иногда покупает коллы на Schwab. Главная боль: экспирации и assignment ломают P&L в журналах.",
+  "scenarios": [
+    {"name": "schwab_transactions", "files": [{"path": "schwab_transactions.csv", "args": []}]}
+  ],
+  "open_positions": [
+    {"ticker": "TSLA", "shares": 100, "avg_cost": 220.00, "currency": "USD"}
+  ],
+  "not_positions": ["SPY 03/21/2025 560.00 P", "AAPL 03/21/2025 250.00 C", "TSLA 03/21/2025 220.00 P"],
+  "realized": {
+    "USD": {"gross": 820.00, "net": 815.04, "closed_trades": 3}
+  },
+  "traps": [
+    "Опционы распознаются только по символу 'SPY 03/21/2025 560.00 P': мультипликатор 100",
+    "Колонка комиссии называется 'Fees & Comm'",
+    "Цены и суммы с '$' и знаком минус перед '$'",
+    "Даты '03/21/2025 as of 03/20/2025'",
+    "Expired: длинный колл истекает по 0 (-210.66 net)",
+    "Assigned: короткий пут закрывается по 0 (+599.34 net) и рождает покупку 100 TSLA по 220",
+    "Qualified Dividend и MoneyLink Transfer не сделки"
+  ]
+}

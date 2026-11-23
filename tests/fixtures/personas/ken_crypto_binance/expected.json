@@ -1,0 +1,22 @@
+{
+  "persona": "Ken, 26, remote (Singapore). Spot crypto trader on Binance, trades at any hour, pays fees in USDT, BNB or the bought coin. Wants honest P&L in USDT and to stop reconciling exchange exports by hand.",
+  "scenarios": [
+    {"name": "binance_spot_history", "files": [{"path": "spot_trade_history.csv", "args": []}]}
+  ],
+  "open_positions": [
+    {"ticker": "BTCUSDT", "shares": 0.03997, "avg_cost": 98299.36, "currency": "USDT"}
+  ],
+  "not_positions": ["ETHUSDT"],
+  "realized": {
+    "USDT": {"gross": -959.97, "closed_trades": 4}
+  },
+  "accounting_choice": "A fee paid in the bought coin (0.00003 BTC) reduces the quantity received: 0.03 BTC bought -> 0.02997 BTC held. Average cost = 7861 USDT / 0.07997 BTC. Net P&L is not asserted because one fee is in BNB.",
+  "traps": [
+    "Units glued to numbers: '0.05000000BTC', '4,825.00000000USDT', '0.00140000BNB'",
+    "Pair instead of ticker + currency: BTCUSDT means BTC priced in USDT (quote currency is not USD)",
+    "Fee in three different assets: quote (USDT), base (BTC) and BNB",
+    "No trade id: two fills of 0.01 BTC at the same second and price look identical and must not be de-duplicated",
+    "Times are UTC ('Date(UTC)'), trading 24/7 incl. 23:41 and 03:05",
+    "Fractional quantities to 8 decimals"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "persona": "Daniel, 29, Berlin. Swing-трейдер на IBKR, базовая валюта EUR, торгует US и EU акции, иногда шортит. Ведёт заметки в Obsidian и хочет, чтобы сделки сами появлялись в vault с тезисом и разбором.",
+  "scenarios": [
+    {"name": "ibkr_flex_multi_section", "files": [{"path": "flex_multi_section.csv", "args": ["--preset", "ibkr"]}]},
+    {"name": "ibkr_activity_statement", "files": [{"path": "activity_statement.csv", "args": ["--preset", "ibkr"]}],
+     "only": ["TSLA", "ASML"]}
+  ],
+  "open_positions": [
+    {"ticker": "NVDA", "shares": 30, "avg_cost": 115.00, "currency": "USD"},
+    {"ticker": "ASML", "shares": 10, "avg_cost": 680.28, "currency": "EUR"}
+  ],
+  "not_positions": ["EUR.USD"],
+  "realized": {
+    "USD": {"gross": 513.00, "net": 509.60, "closed_trades": 2}
+  },
+  "realized_only_subset": {
+    "USD": {"gross": 245.00, "net": 243.00, "closed_trades": 1}
+  },
+  "income_reference": {
+    "ASML": {"date": "2025-05-02", "gross": 15.20, "tax": 2.28, "currency": "EUR"}
+  },
+  "traps": [
+    "Flex CSV с несколькими секциями (Trades, CashTransactions, CorporateActions), у каждой своя строка заголовка",
+    "Сплит NVDA 10:1 (2024-06-07) лежит в секции CorporateActions: 5 @ 1150 -> 50 @ 115",
+    "Шорт TSLA: в файле закрытие идёт строкой выше открытия",
+    "ASML: один приказ исполнен двумя частями (два TradeID, один IBOrderID)",
+    "FX-строка EUR.USD с количеством '-1,000' не позиция",
+    "Activity Statement (самый частый экспорт) имеет формат Section,Header/Data/SubTotal/Total,...; дата '2025-01-10, 15:39:55'"
+  ]
+}
