@@ -1,0 +1,31 @@
+{
+  "persona": "Sofia, 31, Lisbon. Long-term investor on Trading 212 (EUR account): fractional US shares and a UK-listed ETF priced in pence. Wants her real return in EUR and per-position P&L without spreadsheets.",
+  "scenarios": [
+    {"name": "trading212_history", "files": [{"path": "history.csv", "args": []}]}
+  ],
+  "open_positions": [
+    {"ticker": "AAPL", "shares": 0.3123, "avg_cost": 234.42, "currency": "USD"}
+  ],
+  "not_positions": [],
+  "realized": {
+    "USD": {"gross": -37.21, "closed_trades": 1},
+    "GBP": {"gross": 9.36, "closed_trades": 1}
+  },
+  "broker_reference": {
+    "result_eur": {"AAPL 2025-04-08": -41.79, "VUSA 2025-06-02": 7.33},
+    "note": "Trading 212 reports Result in the account currency (EUR) using the FX rate at each fill; per-currency gross above is in the instrument currency."
+  },
+  "income_reference": {
+    "AAPL": {"date": "2025-05-15", "gross": 0.08, "tax": 0.01, "currency": "USD", "net_eur": 0.06},
+    "cash_interest": {"date": "2025-06-30", "amount": 0.84, "currency": "EUR"}
+  },
+  "traps": [
+    "Fractional shares with 10 decimals (0.4123000000)",
+    "VUSA price in GBX (pence): 9412.00 GBX = 94.12 GBP; P&L must not be 100x",
+    "Action values: 'Market buy', 'Limit buy', 'Market sell', 'Dividend (Dividend)', 'Deposit', 'Interest on cash'",
+    "No commission, but a 'Currency conversion fee' in EUR on every USD/GBX trade",
+    "Total and Result are in EUR while the price is in USD/GBX; the price column is 'Price / share'",
+    "Two currency columns per row: 'Currency (Price / share)' is the trade currency, 'Currency (Total)' is the account currency",
+    "Dividend row has 'No. of shares' and 'Price / share' = dividend per share: must not be imported as a trade"
+  ]
+}

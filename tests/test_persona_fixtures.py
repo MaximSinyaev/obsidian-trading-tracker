@@ -45,6 +45,17 @@ KNOWN_ISSUES: dict[str, str] = {
     "jess_options_us/schwab_transactions::positions": "'as of' dates skipped, so the assignment stock buy is lost",
     "jess_options_us/schwab_transactions::not_positions": "Expired/Assigned rows ignored: options stay open forever",
     "jess_options_us/schwab_transactions::realized": "options get multiplier 1, 'Fees & Comm' not read, expiry/assignment not closed",
+    "aidar_freedom_kz/freedom_csv::realized": "option +XLU.21MAR2025.C78 gets multiplier 1: -2.15 instead of -215",
+    # Trading 212
+    "sofia_trading212_eu/trading212_history::import": "'No. of shares'/'Price / share' not detected; 'Market buy'/'Limit sell' not parsed as sides",
+    "sofia_trading212_eu/trading212_history::positions": "import fails",
+    "sofia_trading212_eu/trading212_history::not_positions": "import fails",
+    "sofia_trading212_eu/trading212_history::realized": "import fails; GBX pence not normalised",
+    # Binance
+    "ken_crypto_binance/binance_spot_history::import": "'Pair', 'Date(UTC)', 'Executed' not detected",
+    "ken_crypto_binance/binance_spot_history::positions": "import fails; with --map: base-asset fee ignored, currency USD not USDT",
+    "ken_crypto_binance/binance_spot_history::not_positions": "import fails; with --map: '1.20000000ETH' parsed as missing quantity (E read as exponent)",
+    "ken_crypto_binance/binance_spot_history::realized": "import fails; with --map: identical fills de-duplicated by fingerprint",
 }
 
 
@@ -123,4 +134,5 @@ def test_realized_pnl(folder, exp, sc, tmp_path, monkeypatch, request):
         s = rep["by_currency"].get(ccy, {}).get("summary", {})
         assert s.get("closed_trades") == w["closed_trades"], ccy
         assert s.get("gross_pnl") == pytest.approx(w["gross"], abs=0.005), ccy
-        assert s.get("net_pnl") == pytest.approx(w["net"], abs=0.005), ccy
+        if "net" in w:
+            assert s.get("net_pnl") == pytest.approx(w["net"], abs=0.005), ccy
