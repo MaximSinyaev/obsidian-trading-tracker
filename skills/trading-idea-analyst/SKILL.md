@@ -26,7 +26,7 @@ confirmation dressed up as research.
 | "Give me ideas", "what's interesting this week", "market outlook" | **Full scan** | 1 → 6 |
 | "What do you think about X / theme Y?" | **Thesis check** | 1 (short), 3 → 6 for that one idea |
 | "Should I keep holding X?" | **Position review** | Stop question first, then `references/position-review.md` |
-| "How did your ideas do?" | **Scorecard** | `references/journal-handoff.md` → Scoring |
+| "How did your ideas do?" | **Scorecard** | `references/journal-handoff.md` → Scoring: paper idea quality and real execution, reported separately, every idea counted |
 
 ## The pipeline (full scan)
 
@@ -106,6 +106,10 @@ have all of these fields, or it is not an idea yet:
 
 ### 6. Journal handoff
 
+Each plan entry ends with a `JSON:` line (ticker, direction, reference price
+and time, stop, targets, time stop) so ideas can be scored without parsing
+prose.
+
 Record every idea, taken or not, following `references/journal-handoff.md`:
 a `plan` journal entry for each idea, and, when the user reports a fill, the
 trade itself with `--sl`, targets, `--strategy`, `--setup`, the thesis in
@@ -154,8 +158,15 @@ These are process rules. The user can override the numbers in `sources.toml`
 
 The skill can run on a schedule (pre-market scan, post-close recap, daily
 digest). Times, timezone and sources live in `sources.toml`, never in this file.
-A scheduled run follows the same pipeline but stops after step 5 and writes
-nothing to the journal unless `[schedule].auto_record = true`.
+
+The full pipeline with parallel sub-agents is expensive, so scheduled runs
+default to **delta mode** (`[schedule].mode = "delta"`): one agent, no
+sub-agents, scan only what changed since the last scan (read the previous
+scan from the journal), check open ideas' exit triggers and time stops, and
+flag whether any thesis now needs a full run. The full pipeline runs only when
+the user asks for it, or when `mode = "full"`. Scheduled runs write nothing to
+the journal except `CLOSED` entries for ideas whose time stop passed, unless
+`[schedule].auto_record = true`.
 
 ## Reference files
 
