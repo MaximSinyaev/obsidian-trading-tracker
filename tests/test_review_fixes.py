@@ -154,10 +154,18 @@ def test_json_tags_list_and_bad_rows(conn):
     assert (json.loads(tags) if isinstance(tags, str) else tags) == ["swing", "ai-idea"]
 
 
-def test_dividend_row_is_skipped_with_hint(conn):
-    text = "Date,Symbol,Type,Qty,Price\n2025-01-02,KO,Dividend,1,0.5\n"
+def test_dividend_rows_become_events(conn):
+    text = ("Date,Symbol,Type,Qty,Price,Amount,Currency\n"
+            "2025-01-02,KO,Dividend,10,0.5,,USD\n"
+            "2025-01-02,KO,Withholding Tax,,,-0.75,USD\n"
+            "2025-01-03,PEP,Qualified Dividend,,,$12.40,USD\n"
+            "2025-01-04,XOM,Dividend,,,,USD\n")
     res = importers.import_file(conn, text=text)
+    divs = {d["ticker"]: d for d in res.dividends}
+    assert divs["KO"]["amount"] == 5.0 and divs["KO"]["tax"] == 0.75
+    assert divs["PEP"]["amount"] == 12.4
     assert "event dividend" in res.skipped[0]["reason"]
+    assert len(importers.import_file(conn, text=text).dividends) == 0  # idempotent
 
 
 def test_xlsx_import(conn, tmp_path):
@@ -319,3 +327,18 @@ def test_journal_filters(conn):
     assert [e["text"] for e in db.get_journal(conn, tag="AI-IDEA")] == ["idea one"]
     assert [e["text"] for e in db.get_journal(conn, kind="note")] == ["note two"]
     assert [e["text"] for e in db.get_journal(conn, from_date="2025-04")] == ["note two"]
+
+
+def test_duplicate_split_is_refused(conn):
+    db.add_trade(conn, "NVDA", "buy", 3, 1150, timestamp="2024-05-01")
+    db.add_event(conn, "NVDA", "split", ratio=10, timestamp="2024-06-07", source="ibkr")
+    with pytest.raises(ValueError, match="twice"):
+        db.add_event(conn, "NVDA", "split", ratio=10, timestamp="2024-06-10")
+    db.add_event(conn, "NVDA", "split", ratio=10, timestamp="2024-06-10", force=True)
+    assert any("duplicates split" in i for i in db.validate_db(conn))
+
+
+def test_freedom_tax_is_linked_to_same_day_dividend(conn):
+    res = importers.import_file(conn, text=json.dumps(FREEDOM_REPORT, ensure_ascii=False))
+    assert res.dividends[0]["tax"] == 0.13
+    assert not any("tax row" in n for n in res.notes)

@@ -503,6 +503,30 @@ def import_rows(
             except (ValueError, TypeError):
                 continue
 
+    tax_col = next((h for h in headers if _norm(h) in {"withholdingtax", "tax", "налог", "налогудержанный"}), None)
+    income: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def _collect_income(row: dict[str, Any], i: int, ticker: str, is_tax: bool) -> None:
+        """Dividend / coupon rows (and their withholding-tax rows) become dividend events."""
+        raw = get(row, "timestamp")
+        if time_col and row.get(time_col):
+            raw = f"{raw} {row[time_col]}"
+        ts = parse_timestamp(raw, dayfirst=cfg.get("dayfirst", False), date_format=date_format)
+        ccy = str(get(row, "currency") or defaults.get("currency") or "USD").strip().upper()
+        amount = num(row.get(amount_col)) if amount_col else None
+        q, px = num(get(row, "shares")), num(get(row, "price"))
+        if q and px and (amount is None or not is_tax):
+            amount = abs(q * px)  # per-share amount × quantity, in the price currency (Trading 212)
+        entry = income.setdefault((ticker, ts[:10]), {"ticker": ticker, "date": ts, "amount": 0.0, "tax": 0.0,
+                                                      "currency": ccy, "row": i})
+        if is_tax:
+            entry["tax"] += abs(amount or 0.0)
+        else:
+            entry["amount"] += abs(amount or 0.0)
+            entry["currency"] = ccy
+            if tax_col and num(row.get(tax_col)):
+                entry["tax"] += abs(num(row.get(tax_col)) or 0.0)
+
     for i, row in numbered:
         if time_col and row.get(time_col) and mapping.get("timestamp"):
             row = {**row, mapping["timestamp"]: f"{row[mapping['timestamp']]} {row[time_col]}".strip()}
@@ -536,8 +560,15 @@ def import_rows(
                 close_at_zero = False
             if side is None:
                 raw_side = get(row, "action")
+                word = _norm(str(raw_side or ""))
+                is_div = any(w in word for w in ("dividend", "дивиденд", "купон", "coupon"))
+                is_tax = any(w in word for w in ("withholding", "налог")) and not is_div \
+                    or (is_div and any(w in word for w in ("налог", "tax")) and "qualified" not in word)
+                if (is_div or is_tax) and ticker:
+                    _collect_income(row, i, ticker, is_tax)
+                    continue
                 hint = ""
-                if raw_side and any(w in _norm(str(raw_side)) for w in ("dividend", "дивиденд")):
+                if is_div:
                     hint = "; record it with `trade event dividend TICKER AMOUNT --tax T --date D`"
                 raise ValueError(f"not a buy/sell row (side={raw_side!r}){hint}")
             if qty is None or qty == 0:
@@ -631,6 +662,21 @@ def import_rows(
             touched.add(ticker)
         result.imported.append(record)
 
+    for entry in income.values():
+        if entry["amount"] <= 0:
+            what = "tax row without a dividend" if entry["tax"] else "dividend row without an amount"
+            result.skipped.append({"row": entry["row"], "reason": f"{what} ({entry['ticker']}); record it with "
+                                   "`trade event dividend TICKER AMOUNT --tax T --date D`"})
+            continue
+        ext = f"div:{entry['ticker']}:{entry['date'][:10]}:{entry['amount']:.4f}"
+        if conn.execute("SELECT 1 FROM events WHERE source = ? AND external_id = ?", (source, ext)).fetchone():
+            continue
+        if not dry_run:
+            db.add_event(conn, entry["ticker"], "dividend", amount=round(entry["amount"], 6),
+                         tax=round(entry["tax"], 6), currency=entry["currency"], timestamp=entry["date"],
+                         source=source, external_id=ext, commit=False)
+        result.dividends.append({k: (round(v, 2) if isinstance(v, float) else v) for k, v in entry.items()
+                                 if k != "row"} | {"date": entry["date"][:10]})
     for (fee_ccy, ccy), n in fee_skipped.items():
         result.notes.append(f"{n} row(s): commission charged in {fee_ccy} on {ccy} trades was not "
                             f"included (no silent FX conversion); it is noted on each trade")
@@ -653,10 +699,23 @@ def _freedom_dividends(conn: sqlite3.Connection, data: dict[str, Any], result: I
                        dry_run: bool) -> None:
     flows = (data.get("cash_flows") or {}).get("detailed") or []
     taxes = 0
+    # Withholding tax rows carry no ticker; link one to the dividend paid the same day in the
+    # same currency when that match is unique.
+    tax_by_day: dict[tuple[str, str], list[float]] = {}
+    divs_by_day: dict[tuple[str, str], int] = {}
+    for flow in flows:
+        key = (str(flow.get("date"))[:10], str(flow.get("currency") or "").upper())
+        kind = str(flow.get("type_id") or "").lower()
+        if kind == "tax":
+            tax_by_day.setdefault(key, []).append(abs(parse_number(flow.get("amount")) or 0.0))
+        elif kind == "dividend":
+            divs_by_day[key] = divs_by_day.get(key, 0) + 1
     for n, flow in enumerate(flows, start=1):
         kind = str(flow.get("type_id") or "").lower()
         if kind == "tax":
-            taxes += 1
+            key = (str(flow.get("date"))[:10], str(flow.get("currency") or "").upper())
+            if divs_by_day.get(key) != 1:
+                taxes += 1
             continue
         if kind != "dividend":
             continue
@@ -677,8 +736,11 @@ def _freedom_dividends(conn: sqlite3.Connection, data: dict[str, Any], result: I
         rec = {"ticker": ticker, "amount": amount, "currency": ccy, "date": ts[:10]}
         if exists:
             continue
+        day_key = (ts[:10], ccy)
+        tax = sum(tax_by_day.get(day_key, [])) if divs_by_day.get(day_key) == 1 else 0.0
+        rec["tax"] = round(tax, 2)
         if not dry_run:
-            db.add_event(conn, ticker, "dividend", amount=amount, currency=ccy, timestamp=ts,
+            db.add_event(conn, ticker, "dividend", amount=amount, tax=tax, currency=ccy, timestamp=ts,
                          source="freedom", external_id=ext, commit=False)
         result.dividends.append(rec)
     if taxes:

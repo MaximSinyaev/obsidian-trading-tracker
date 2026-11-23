@@ -687,11 +687,12 @@ def event_split(
     ratio: Annotated[float, typer.Argument(help="New shares per old share: 4 for 4-for-1, 0.1 for 1-for-10")],
     timestamp: Annotated[Optional[str], typer.Option("--date")] = None,
     notes: Annotated[Optional[str], typer.Option("--notes", "-n")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Record even if a similar split exists")] = False,
 ):
     """Record a stock split (applies to the position held at that date)."""
     conn = _get_conn()
     try:
-        eid = db.add_event(conn, ticker, "split", timestamp=timestamp, ratio=ratio, notes=notes)
+        eid = db.add_event(conn, ticker, "split", timestamp=timestamp, ratio=ratio, notes=notes, force=force)
     except ValueError as exc:
         _fail(str(exc))
         return

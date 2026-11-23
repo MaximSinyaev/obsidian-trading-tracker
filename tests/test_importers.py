@@ -83,7 +83,7 @@ class TestImport:
     def test_tinvest(self, conn):
         res = importers.import_file(conn, EXAMPLES / "tinvest.csv", preset="tinvest")
         assert len(res.imported) == 2
-        assert len(res.skipped) == 1 and "buy/sell" in res.skipped[0]["reason"]
+        assert len(res.skipped) == 1 and "event dividend" in res.skipped[0]["reason"]
         (c,) = db.get_closed_trades(conn)
         assert c["currency"] == "RUB"
         assert c["gross_pnl"] == pytest.approx(307.0)

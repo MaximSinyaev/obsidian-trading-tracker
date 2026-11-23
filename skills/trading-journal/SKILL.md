@@ -124,7 +124,9 @@ one note per ticker and the dashboard into `<vault>/Trading/`. Text the user wri
 below `%% notes %%` in those files is preserved.
 
 **Corrections.** `trade --json edit <id> --price 12.30` or `trade --json delete <id> --yes`.
-All dependent P&L is recomputed. Corporate actions:
+All dependent P&L is recomputed. Corporate actions
+(check `trade --json event list --ticker AAPL` first: broker imports may already
+contain the split, and a duplicate within 10 days is refused):
 `trade --json event split AAPL 4 --date 2020-08-31`,
 `trade --json event dividend KO 12.40 --tax 1.86 --date 2025-04-01`.
 

@@ -324,11 +324,17 @@ def find_by_external_id(conn: sqlite3.Connection, source: str, external_id: str)
 def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: str | None = None,
               ratio: float | None = None, amount: float | None = None, tax: float = 0,
               currency: str | None = None, notes: str | None = None, source: str = "manual",
-              external_id: str | None = None, commit: bool = True) -> int:
+              external_id: str | None = None, commit: bool = True, force: bool = False) -> int:
     kind = kind.lower()
     if kind == "split":
         if ratio is None or ratio <= 0:
             raise ValueError("split needs a ratio > 0 (e.g. 4 for a 4-for-1 split, 0.1 for 1-for-10)")
+        dup = _similar_split(conn, ticker, ratio, normalize_timestamp(timestamp))
+        if dup and not force:
+            raise ValueError(
+                f"{ticker.upper()} already has a x{dup['ratio']:g} split on {dup['timestamp'][:10]} "
+                f"(event #{dup['id']}, source {dup['source']}); recording it again would apply it twice. "
+                "Check `trade event list --ticker` or pass --force if this is a second split")
     elif kind == "dividend":
         if amount is None:
             raise ValueError("dividend needs an amount (total cash received, before tax)")
@@ -344,6 +350,21 @@ def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: st
     if commit:
         conn.commit()
     return cur.lastrowid  # type: ignore[return-value]
+
+
+def _similar_split(conn: sqlite3.Connection, ticker: str, ratio: float, ts: str,
+                   days: int = 10, exclude_id: int | None = None) -> dict[str, Any] | None:
+    when = datetime.fromisoformat(ts)
+    for r in conn.execute("SELECT id, timestamp, ratio, source FROM events WHERE kind = 'split' AND ticker = ?",
+                          (ticker.upper(),)).fetchall():
+        if r["id"] == exclude_id or abs(float(r["ratio"]) - float(ratio)) > 1e-9:
+            continue
+        try:
+            if abs((datetime.fromisoformat(r["timestamp"]) - when).days) <= days:
+                return dict(r)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def get_events(conn: sqlite3.Connection, ticker: str | None = None) -> list[dict[str, Any]]:
@@ -677,6 +698,15 @@ def validate_db(conn: sqlite3.Connection) -> list[str]:
         except (TypeError, ValueError):
             issues.append(f"trade #{row['id']}: timestamp {row['timestamp']!r} is not ISO; fix with `trade edit "
                           f"{row['id']} --date YYYY-MM-DDTHH:MM`")
+    for ev in conn.execute("SELECT id, ticker, timestamp, ratio FROM events WHERE kind = 'split' ORDER BY id"):
+        dup = _similar_split(conn, ev["ticker"], ev["ratio"], ev["timestamp"], exclude_id=ev["id"])
+        if dup and dup["id"] < ev["id"]:
+            issues.append(f"split #{ev['id']} on {ev['ticker']} duplicates split #{dup['id']} (x{ev['ratio']:g}, "
+                          f"{dup['timestamp'][:10]}); delete one with `trade event delete ID`")
+    for row in conn.execute("SELECT id, ticker FROM trades WHERE price = 0 AND COALESCE(instrument, 'stock') "
+                            "IN ('stock', 'etf')"):
+        issues.append(f"trade #{row['id']} ({row['ticker']}) has price 0: if it is a split or transfer, delete it "
+                      "and record a split event instead")
     result = run_ledger(conn)
     issues.extend(result.warnings)
 
