@@ -398,13 +398,17 @@ wheels = [
 
 [[package]]
 name = "obsidian-trading-tracker"
-version = "0.5.2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
     { name = "pydantic" },
     { name = "rich" },
     { name = "typer" },
+]
+
+[package.optional-dependencies]
+yahoo = [
     { name = "yfinance" },
 ]
 
@@ -412,6 +416,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "ruff" },
+    { name = "yfinance" },
 ]
 
 [package.metadata]
@@ -420,13 +425,15 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
-    { name = "yfinance", specifier = ">=1.2.0" },
+    { name = "yfinance", marker = "extra == 'yahoo'", specifier = ">=1.2.0" },
 ]
+provides-extras = ["yahoo"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.8.0" },
+    { name = "yfinance", specifier = ">=1.2.0" },
 ]
 
 [[package]]
