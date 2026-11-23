@@ -14,6 +14,16 @@ user asks about their trades, positions, P&L or trading performance, use it.
 The full playbook is in [`skills/trading-journal/SKILL.md`](skills/trading-journal/SKILL.md),
 with the command reference in `skills/trading-journal/references/`.
 
+## Trade ideas and research
+
+If the user asks for trade ideas, a market outlook, a thesis check or a review
+of whether to hold a position, follow
+[`skills/trading-idea-analyst/SKILL.md`](skills/trading-idea-analyst/SKILL.md):
+macro scan before any ticker, theses with counter-evidence, a stop for every
+idea, and every idea recorded in the journal (`--kind plan`, `ai-idea` tags,
+a `JSON:` line) so its outcome can be scored later. It is a research process,
+not financial advice; show its disclaimer with every set of ideas.
+
 ## Working on this codebase
 
 - Python 3.12+, `uv sync`, tests: `uv run pytest`.
