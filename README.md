@@ -25,7 +25,9 @@ model never has to do it.
 - **Obsidian** — daily notes and one note per ticker with Dataview-friendly frontmatter.
 - **Private** — your trades stay in a SQLite file on your machine. No account, no cloud.
 
-![Dashboard](docs/dashboard.png)
+![Dashboard demo: equity curve, breakdowns, trade search, dark mode](docs/demo.gif)
+
+<sub>Demo data. Static screenshot: [light](docs/dashboard.png), [dark](docs/dashboard-dark.png).</sub>
 
 ## Install
 
@@ -53,9 +55,19 @@ trade --version
 The `yahoo` extra adds optional Yahoo Finance quotes and FX rates. Without it the
 tool has no network access at all; prices can be set by you or your agent.
 
-For Codex, Cursor and other agents: keep [`AGENTS.md`](AGENTS.md) and
-[`skills/trading-journal/`](skills/trading-journal/) in reach of the agent
-(or copy the skill folder into your agent's skills directory).
+### Codex, Cursor and other agents
+
+Both read skills from `~/.agents/skills/` (all projects) or `.agents/skills/`
+(one project), so one copy serves both:
+
+```bash
+git clone --depth 1 https://github.com/MaximSinyaev/obsidian-trading-tracker /tmp/ttt
+mkdir -p ~/.agents/skills && cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
+```
+
+In Codex call it with `$trading-journal`, in Cursor with `/trading-journal`, or
+just talk about your trades. Other agents: give them [`AGENTS.md`](AGENTS.md).
+Details, updating and troubleshooting: [docs/install.md](docs/install.md).
 
 ## Quick start
 
@@ -174,6 +186,24 @@ uv run pytest
 The ledger (`src/trading_tracker/ledger.py`) is the only place positions and P&L
 are computed; `closed_trades` is a cache rebuilt from `trades` after each change.
 
+## Disclaimer
+
+This is a record-keeping tool, not financial, investment or tax advice. Nothing
+it or an agent using it outputs (including AI-generated trade ideas) is a
+recommendation to buy or sell anything.
+
+- **Check the numbers against your broker** before relying on them for taxes.
+  P&L uses the average-cost method; tax rules in many countries (and some
+  brokers' lot reports) use FIFO, so per-trade results can differ.
+- **Your data and your LLM provider.** The database stays on your machine and the
+  CLI has no telemetry. But whatever your agent reads from the CLI (trades,
+  positions, P&L) is sent to the model provider your agent uses, under that
+  provider's terms. Use a local model or ask the agent for aggregates only if that matters to you.
+- **Optional quotes** (`[yahoo]` extra) come from Yahoo Finance via `yfinance`,
+  an unofficial API with its own terms; they can be delayed or wrong.
+- Provided "as is", without warranty, under the MIT license. Keep backups of
+  your `trades.db`.
+
 ## License
 
-MIT
+[MIT](LICENSE)
