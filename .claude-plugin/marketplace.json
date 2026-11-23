@@ -1,0 +1,16 @@
+{
+  "name": "trading-journal",
+  "owner": { "name": "Maxim Sinyaev", "url": "https://github.com/MaximSinyaev" },
+  "metadata": {
+    "description": "Local-first trading journal skills for Claude Code and other agents."
+  },
+  "plugins": [
+    {
+      "name": "trading-journal",
+      "source": "./",
+      "description": "Exact trade accounting (deterministic P&L in local SQLite), broker imports, interactive dashboards, Obsidian export.",
+      "version": "1.0.0",
+      "category": "finance"
+    }
+  ]
+}

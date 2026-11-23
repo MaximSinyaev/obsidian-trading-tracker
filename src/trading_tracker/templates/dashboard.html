@@ -72,6 +72,7 @@ tr.detail td { white-space: normal; background: var(--bg); color: var(--ink); fo
 .entry { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 0 0 12px; }
 .entry .meta { color: var(--muted); font-size: 12px; }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+a { color: var(--accent); }
 footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
 </style>
 </head>
@@ -125,7 +126,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   let bdKey = "by_strategy";
   const money = (v, c) => v == null ? "–" : (v < 0 ? "−" : "") + (SYM[c || ccy] || (c || ccy) + " ") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const signed = (v, c) => v == null ? "–" : `<span class="${v >= 0 ? "pos" : "neg"}">${v > 0 ? "+" : ""}${money(v, c)}</span>`;
-  const num = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d });
+  const num = (v, d = 2) => v == null ? "–" : (Math.abs(v) < Math.pow(10, -d) / 2 ? 0 : Number(v)).toLocaleString(undefined, { maximumFractionDigits: d });
   const tip = $("tip");
   const showTip = (e, html) => { tip.innerHTML = html; tip.style.display = "block"; tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = e.clientY + 12 + "px"; };
   const hideTip = () => { tip.style.display = "none"; };
@@ -285,7 +286,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       }).join("") + `</tbody></table>`;
   }
 
-  let sortKey = "closed_at", sortDir = -1, openRow = null;
+  let sortKey = "closed_at", sortDir = -1, openRow = null, shown = 25;
   function trades() {
     const q = $("q").value.trim().toLowerCase(), fs = $("fStrategy").value, fr = $("fResult").value;
     let rows = R.closed_trades.filter((t) => t.currency === ccy)
@@ -293,6 +294,8 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       .filter((t) => !fr || (fr === "win" ? t.net_pnl > 0 : t.net_pnl <= 0))
       .filter((t) => !q || [t.ticker, t.strategy, t.setup, (t.tags || []).join(" "), t.entry_notes, t.exit_notes, t.lesson, t.what_worked, t.what_failed].join(" ").toLowerCase().includes(q));
     rows.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+    const total = rows.length;
+    rows = rows.slice(0, shown);
     const cols = [["closed_at", "Closed"], ["ticker", "Ticker"], ["direction", "Side"], ["shares", "Qty", 1], ["avg_entry_price", "Entry", 1], ["avg_exit_price", "Exit", 1], ["total_commission", "Fees", 1], ["net_pnl", "Net P&L", 1], ["pnl_percent", "%", 1], ["r_multiple", "R", 1], ["hold_duration_days", "Days", 1], ["strategy", "Strategy"]];
     if (!rows.length) { $("trades").innerHTML = '<div class="empty">No trades match</div>'; return; }
     $("trades").innerHTML = `<table><thead><tr>${cols.map(([k, l, n]) => `<th data-k="${k}" class="${n ? "num" : ""}">${l}${k === sortKey ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>` +
@@ -308,7 +311,9 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
           <td class="num">${money(t.total_commission)}</td><td class="num">${signed(t.net_pnl)}</td><td class="num">${num(t.pnl_percent, 1)}%</td>
           <td class="num">${t.r_multiple == null ? "–" : num(t.r_multiple) + "R"}</td><td class="num">${t.hold_duration_days == null ? "–" : num(t.hold_duration_days, 1)}</td>
           <td>${esc(t.strategy || "")}</td></tr>${detail}`;
-      }).join("") + `</tbody></table><div class="sub" style="margin-top:6px">${rows.length} trades · click a row for thesis, fees and review</div>`;
+      }).join("") + `</tbody></table><div class="sub" style="margin-top:6px">Showing ${rows.length} of ${total} trades · click a row for thesis, fees and review
+        ${total > rows.length ? ' · <a href="#" id="more">show more</a>' : ""}</div>`;
+    const more = $("more"); if (more) more.onclick = (e) => { e.preventDefault(); shown += 50; trades(); };
     $("trades").querySelectorAll("th").forEach((th) => th.onclick = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : -1; sortKey = k; trades(); });
     $("trades").querySelectorAll("tr[data-id]").forEach((tr) => tr.onclick = () => {
       const id = Number(tr.dataset.id); openRow = openRow === id ? null : id; trades();
@@ -334,7 +339,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     const ct = R.closed_trades.filter((t) => t.currency === ccy);
     kpis(B); equity(B); months(B); breakdown(B); calendar(ct); rdist(ct); positions(); trades(); journal();
   }
-  ["q", "fStrategy", "fResult"].forEach((id) => $(id).addEventListener("input", trades));
+  ["q", "fStrategy", "fResult"].forEach((id) => $(id).addEventListener("input", () => { shown = 25; trades(); }));
   render();
 })();
 </script>

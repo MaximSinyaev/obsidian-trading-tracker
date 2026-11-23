@@ -179,3 +179,10 @@ def test_migration_from_v4_keeps_data_and_reviews(tmp_path):
     assert ct["net_pnl"] == 8.35  # now includes the entry commission
     assert ct["lesson"] == "Trust the plan"
     assert db.validate_db(conn) == []
+
+
+def test_origin_does_not_match_airlines(tmp_path):
+    from trading_tracker.report import _origin
+    assert _origin({"tags": ["airlines"]}) == ["manual"]
+    assert _origin({"tags": ["ai-idea"]}) == ["ai"]
+    assert _origin({"tags": ["AI"]}) == ["ai"]
