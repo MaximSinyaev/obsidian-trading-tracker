@@ -57,11 +57,11 @@ class TestAddTrade:
         assert trade["action"] == "SELL"
 
     def test_invalid_action_rejected(self, conn):
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises((sqlite3.IntegrityError, ValueError)):
             db.add_trade(conn, "FRO", "HOLD", 1, 10.0)
 
     def test_negative_shares_rejected(self, conn):
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises((sqlite3.IntegrityError, ValueError)):
             db.add_trade(conn, "FRO", "BUY", -1, 10.0)
 
     def test_zero_price_allowed(self, conn):
@@ -71,7 +71,7 @@ class TestAddTrade:
         assert trade["price"] == 0
 
     def test_negative_price_rejected(self, conn):
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises((sqlite3.IntegrityError, ValueError)):
             db.add_trade(conn, "FRO", "BUY", 1, -1)
 
     def test_custom_timestamp(self, conn):
@@ -160,8 +160,8 @@ class TestClosePosition:
         assert result["exit_price"] == 43.0
         # gross_pnl = 3 * 43.00 - 3 * 39.55 = 129.00 - 118.65 = 10.35
         assert result["gross_pnl"] == 10.35
-        # net_pnl = 10.35 - 10 (exit commission) = 0.35
-        assert result["net_pnl"] == 0.35
+        # net_pnl = 10.35 - 10 (entry) - 10 (exit) = -9.65
+        assert result["net_pnl"] == -9.65  # net incl. entry commission
         assert result["remaining_shares"] == 0
 
     def test_partial_close(self, conn):
@@ -258,7 +258,7 @@ class TestShortPositions:
         db.add_trade(conn, "TSLA", "sell", 5, 200.0, commission=5)
         result = db.close_position(conn, "TSLA", 5, 180.0, commission=5)
         assert result["gross_pnl"] == 100.0
-        assert result["net_pnl"] == 95.0  # 100 - 5 (exit commission only)
+        assert result["net_pnl"] == 90.0  # net incl. entry commission
 
     def test_short_closed_trade_record(self, conn):
         db.add_trade(conn, "TSLA", "sell", 5, 200.0)
@@ -346,8 +346,8 @@ class TestAutoClose:
         assert len(closed) == 1
         # Gross = 3*(35.946 - 39.55) = -10.812 → rounded to -10.81
         assert closed[0]["gross_pnl"] == pytest.approx(-10.81, abs=0.01)
-        # Net = -10.81 - 1.78 = -12.59
-        assert closed[0]["net_pnl"] == pytest.approx(-12.59, abs=0.01)
+        # Net = -10.81 - 1.83 (entry) - 1.78 (exit) = -14.42
+        assert closed[0]["net_pnl"] == pytest.approx(-14.42, abs=0.01)  # net incl. entry commission
 
     def test_stats_work_after_add_trade(self, conn):
         """trade stats should work without ever calling close_position."""
