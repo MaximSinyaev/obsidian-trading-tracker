@@ -1,0 +1,32 @@
+{
+  "persona": "Айдар, 34, Алматы. Долгосрочный инвестор на Freedom Finance (Tradernet): KASE в KZT и американские акции в USD, раз в квартал конвертирует KZT->USD. Хочет видеть P&L в каждой валюте и сверку с отчётом брокера.",
+  "note": "Формат реконструирован по описаниям Tradernet broker-report (публичной спецификации XLS нет). Сверить с реальной анонимизированной выгрузкой.",
+  "scenarios": [
+    {"name": "freedom_csv", "files": [{"path": "trades_export.csv", "args": []}]},
+    {"name": "freedom_json", "files": [{"path": "broker_report.json", "args": []}]}
+  ],
+  "open_positions": [
+    {"ticker": "AAPL", "shares": 4, "avg_cost": 207.80, "currency": "USD"},
+    {"ticker": "NVDA", "shares": 3, "avg_cost": 170.10, "currency": "USD"},
+    {"ticker": "KCEL.KZ", "shares": 60, "avg_cost": 2950.00, "currency": "KZT"},
+    {"ticker": "HSBK.KZ", "shares": 200, "avg_cost": 255.50, "currency": "KZT"}
+  ],
+  "not_positions": ["USD/KZT", "USDKZT"],
+  "realized": {
+    "USD": {"gross": -349.80, "net": -353.20, "closed_trades": 2},
+    "KZT": {"gross": 10400.00, "net": 10030.40, "closed_trades": 1}
+  },
+  "income_reference": {
+    "AAPL": {"date": "2025-05-15", "gross": 2.34, "tax": 0.35, "currency": "USD"},
+    "HSBK.KZ": {"date": "2025-05-30", "gross": 7364.00, "tax": 0.00, "currency": "KZT"}
+  },
+  "traps": [
+    "USD/KZT конвертация (instr_type 6) не должна стать позицией",
+    "NVDA: комиссия 1.50 в EUR при цене в USD (Freedom24 EU)",
+    "Тикеры с суффиксом .US: ручной `trade add AAPL` и импорт AAPL.US должны попадать в одну позицию",
+    "Две даты: сделки и расчётов; два id: сделки и приказа",
+    "Колонка 'Прибыль' = брокерский gross по средней, годится для сверки: AAPL -94.20 и -255.60, KCEL 10400",
+    "Re-entry AAPL после полного закрытия: новая позиция по 207.80, а не смешанная средняя",
+    "cash_flows: дивиденды с налогом 15% у источника и абонплата тарифа не относятся к сделкам"
+  ]
+}
