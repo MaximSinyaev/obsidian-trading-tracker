@@ -3,19 +3,19 @@
 # without it the skill uses web search and whatever market data tools exist.
 
 [user]
-timezone = "UTC"                 # all event times are shown in this timezone, e.g. "Asia/Almaty"
+timezone = "UTC"                 # all event times are shown in this timezone, e.g. "America/New_York", "Europe/London", "Asia/Singapore"
 base_currency = "USD"
-home_central_bank = ""           # e.g. "National Bank of Kazakhstan"
-markets = ["US"]                 # markets the user can trade, e.g. ["US", "KASE", "AIX"]
-# Markets with weak public price coverage (e.g. KASE, AIX): name a price
+home_central_bank = ""           # e.g. "Bank of England"; leave empty if the Fed is enough
+markets = ["US"]                 # markets the user can trade, e.g. ["US", "LSE", "XETRA", "TSE"]
+# Markets with weak public price coverage (smaller or regional exchanges): name a price
 # source here; the agent records quotes with `trade price set` so ideas on
 # those tickers can still be scored.
-price_sources = {}               # e.g. { KASE = "kase.kz", AIX = "broker app" }
+price_sources = {}               # e.g. { "SGX" = "broker platform" }
 instruments_allowed = ["stock", "etf"]   # add "option", "leveraged_etf", "future" if used
 broker_notes = ""                # e.g. "premarket access; options are expensive"
 
 [scan]
-extra_regions = []               # e.g. ["Kazakhstan", "EU"]
+extra_regions = []               # e.g. ["EU", "Japan", "India"]
 max_theses = 4
 
 # One block per source. kind: web | rss | telegram | newsletter | api | file
@@ -29,9 +29,9 @@ bias = ""
 
 [[sources]]
 name = "Example broker research"
-kind = "telegram"
-location = "@example_channel"   # needs a Telegram tool or an export file
-focus = "local market, PMI"
+kind = "file"
+location = "~/research/broker-notes/"   # exported PDFs or notes; chat channels (Telegram, Discord) work via a tool or an export
+focus = "home market, earnings previews"
 bias = "broker house view"
 
 [risk]
