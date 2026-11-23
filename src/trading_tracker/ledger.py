@@ -149,6 +149,7 @@ class _State:
     last_trade: str | None = None
     first_trade_ever: str | None = None
     realized_net: Decimal = ZERO  # realized P&L across all epochs
+    dividends: Decimal = ZERO  # dividend / coupon income (net of withholding tax)
 
     def reset(self) -> None:
         self.net = ZERO
@@ -183,6 +184,7 @@ class LedgerResult:
     realized: list[RealizedLot]
     warnings: list[str]
     tickers: dict[str, dict[str, Any]]  # per-ticker lifetime summary
+    income: list[dict[str, Any]] = field(default_factory=list)  # dividends, in date order
 
 
 def _normalize(trade: dict[str, Any]) -> dict[str, Any]:
@@ -201,18 +203,39 @@ def _normalize(trade: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def sort_key(trade: dict[str, Any]) -> tuple[str, int]:
-    return (str(trade["timestamp"]), int(trade["id"]))
+def sort_key(trade: dict[str, Any]) -> tuple[str, int, int]:
+    # Corporate events sort before trades with the same timestamp: a split dated
+    # 2025-06-10 applies to the position held going into that day.
+    return (str(trade["timestamp"]), 0 if trade.get("kind") else 1, int(trade["id"]))
 
 
-def replay(trades: Iterable[dict[str, Any]]) -> LedgerResult:
-    """Replay trades (any order) and return positions + realized lots."""
-    ordered = sorted((_normalize(t) for t in trades), key=sort_key)
+def _normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(ev["id"]),
+        "kind": str(ev["kind"]).lower(),
+        "ticker": str(ev["ticker"]).upper(),
+        "timestamp": str(ev["timestamp"]),
+        "ratio": D(ev.get("ratio")) if ev.get("ratio") is not None else None,
+        "amount": D(ev.get("amount")),
+        "tax": D(ev.get("tax") or 0),
+        "currency": (ev.get("currency") or "").upper() or None,
+    }
+
+
+def replay(trades: Iterable[dict[str, Any]],
+           events: Iterable[dict[str, Any]] | None = None) -> LedgerResult:
+    """Replay trades and corporate events (any order) into positions + realized lots."""
+    items = [_normalize(t) for t in trades] + [_normalize_event(e) for e in (events or [])]
+    ordered = sorted(items, key=sort_key)
     states: dict[str, _State] = {}
     realized: list[RealizedLot] = []
+    income: list[dict[str, Any]] = []
     warnings: list[str] = []
 
     for t in ordered:
+        if "kind" in t:
+            _apply_event(t, states, income, warnings)
+            continue
         if t["action"] not in ("BUY", "SELL"):
             warnings.append(f"trade {t['id']}: unknown action {t['action']!r}, skipped")
             continue
@@ -304,6 +327,7 @@ def replay(trades: Iterable[dict[str, Any]]) -> LedgerResult:
             "ticker": tk,
             "currency": st.currency,
             "realized_pnl": money(st.realized_net),
+            "dividends": money(st.dividends),
             "total_commission": money(st.total_commission),
             "first_trade": st.first_trade_ever,
             "last_trade": st.last_trade,
@@ -332,9 +356,47 @@ def replay(trades: Iterable[dict[str, Any]]) -> LedgerResult:
             "instrument": st.instrument,
             "strategy": st.strategy,
             "realized_pnl": money(st.realized_net),
+            "dividends": money(st.dividends),
         }
 
-    return LedgerResult(positions=positions, realized=realized, warnings=warnings, tickers=tickers)
+    return LedgerResult(positions=positions, realized=realized, warnings=warnings,
+                        tickers=tickers, income=income)
+
+
+def _apply_event(ev: dict[str, Any], states: dict[str, _State],
+                 income: list[dict[str, Any]], warnings: list[str]) -> None:
+    st = states.get(ev["ticker"])
+    if ev["kind"] == "split":
+        ratio = ev["ratio"]
+        if ratio is None or ratio <= 0:
+            warnings.append(f"event {ev['id']}: split without a positive ratio, skipped")
+            return
+        if st is None or abs(st.net) <= EPS:
+            warnings.append(
+                f"event {ev['id']}: split for {ev['ticker']} on {ev['timestamp'][:10]} "
+                "while no position was open; ignored"
+            )
+            return
+        # 2-for-1 split: ratio 2 → twice the shares at half the price. Cost basis unchanged.
+        st.net *= ratio
+        st.avg /= ratio
+        return
+    if ev["kind"] == "dividend":
+        net_amount = ev["amount"] - ev["tax"]
+        currency = ev["currency"] or (st.currency if st else "USD")
+        if st is not None:
+            st.dividends += net_amount
+        income.append({
+            "event_id": ev["id"],
+            "ticker": ev["ticker"],
+            "timestamp": ev["timestamp"],
+            "gross": money(ev["amount"]),
+            "tax": money(ev["tax"]),
+            "net": money(net_amount),
+            "currency": currency,
+        })
+        return
+    warnings.append(f"event {ev['id']}: unknown kind {ev['kind']!r}, skipped")
 
 
 def unrealized(position: dict[str, Any], price: float | Decimal | None) -> dict[str, Any]:

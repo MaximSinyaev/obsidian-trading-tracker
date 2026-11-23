@@ -45,6 +45,24 @@ CREATE TABLE IF NOT EXISTS prices (
     source TEXT NOT NULL DEFAULT 'manual'
 );
 
+-- Corporate actions and cash income: splits (ratio), dividends / coupons (amount, net of tax).
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('split', 'dividend')),
+    timestamp TEXT NOT NULL,
+    ratio REAL CHECK (ratio IS NULL OR ratio > 0),
+    amount REAL,
+    tax REAL NOT NULL DEFAULT 0,
+    currency TEXT,
+    notes TEXT,
+    source TEXT NOT NULL DEFAULT 'manual',
+    external_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external_id
+    ON events(source, external_id) WHERE external_id IS NOT NULL;
+
 -- Free-form trading journal (daily reflections, plans, mistakes).
 CREATE TABLE IF NOT EXISTS journal_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

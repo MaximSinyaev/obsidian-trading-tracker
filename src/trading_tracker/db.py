@@ -244,11 +244,61 @@ def find_by_external_id(conn: sqlite3.Connection, source: str, external_id: str)
     return row["id"] if row else None
 
 
+# ── corporate events (splits, dividends) ───────────────────────────────────
+
+
+def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: str | None = None,
+              ratio: float | None = None, amount: float | None = None, tax: float = 0,
+              currency: str | None = None, notes: str | None = None, source: str = "manual",
+              external_id: str | None = None, commit: bool = True) -> int:
+    kind = kind.lower()
+    if kind == "split":
+        if ratio is None or ratio <= 0:
+            raise ValueError("split needs a ratio > 0 (e.g. 4 for a 4-for-1 split, 0.1 for 1-for-10)")
+    elif kind == "dividend":
+        if amount is None:
+            raise ValueError("dividend needs an amount (total cash received, before tax)")
+    else:
+        raise ValueError("kind must be 'split' or 'dividend'")
+    cur = conn.execute(
+        "INSERT INTO events (ticker, kind, timestamp, ratio, amount, tax, currency, notes, source, external_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticker.upper(), kind, normalize_timestamp(timestamp), ratio, amount, tax or 0,
+         currency.upper() if currency else None, notes, source, external_id),
+    )
+    rebuild_closed_trades(conn, [ticker])
+    if commit:
+        conn.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
+def get_events(conn: sqlite3.Connection, ticker: str | None = None) -> list[dict[str, Any]]:
+    try:
+        if ticker:
+            rows = conn.execute("SELECT * FROM events WHERE ticker = ? ORDER BY timestamp, id",
+                                (ticker.upper(),)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM events ORDER BY timestamp, id").fetchall()
+    except sqlite3.OperationalError:  # pre-005 database
+        return []
+    return [dict(r) for r in rows]
+
+
+def delete_event(conn: sqlite3.Connection, event_id: int) -> bool:
+    row = conn.execute("SELECT ticker FROM events WHERE id = ?", (event_id,)).fetchone()
+    if row is None:
+        return False
+    conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+    rebuild_closed_trades(conn, [row["ticker"]])
+    conn.commit()
+    return True
+
+
 # ── ledger-derived data ─────────────────────────────────────────────────────
 
 
 def run_ledger(conn: sqlite3.Connection, ticker: str | None = None) -> ledger.LedgerResult:
-    return ledger.replay(get_trades(conn, ticker))
+    return ledger.replay(get_trades(conn, ticker), get_events(conn, ticker))
 
 
 def rebuild_closed_trades(conn: sqlite3.Connection, tickers: Iterable[str] | None = None) -> int:
@@ -256,6 +306,7 @@ def rebuild_closed_trades(conn: sqlite3.Connection, tickers: Iterable[str] | Non
     if tickers is None:
         conn.execute("DELETE FROM closed_trades")
         trades = get_trades(conn)
+        events = get_events(conn)
     else:
         tickers = sorted({t.upper() for t in tickers if t})
         if not tickers:
@@ -267,7 +318,12 @@ def rebuild_closed_trades(conn: sqlite3.Connection, tickers: Iterable[str] | Non
                 f"SELECT * FROM trades WHERE ticker IN ({marks}) ORDER BY timestamp, id", tickers
             ).fetchall()
         ]
-    result = ledger.replay(trades)
+        events = [
+            dict(r) for r in conn.execute(
+                f"SELECT * FROM events WHERE ticker IN ({marks})", tickers
+            ).fetchall()
+        ]
+    result = ledger.replay(trades, events)
     reviews = {
         r["exit_trade_id"]: dict(r)
         for r in conn.execute("SELECT * FROM trade_reviews").fetchall()
