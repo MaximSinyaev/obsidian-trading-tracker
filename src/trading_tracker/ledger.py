@@ -391,7 +391,7 @@ def _apply_event(ev: dict[str, Any], states: dict[str, _State],
                 f"{money(ev['amount'])}"
             )
         currency = ev["currency"] or (st.currency if st else "USD")
-        if st is not None:
+        if st is not None and currency == st.currency:
             st.dividends += net_amount
         paid = net_amount < 0 and ev["amount"] > 0
         income.append({
@@ -415,11 +415,12 @@ def unrealized(position: dict[str, Any], price: float | Decimal | None) -> dict[
     p = D(price)
     held = D(position["shares"])
     mult = D(position.get("multiplier") or 1)
-    avg = D(position["avg_cost"])
     direction = 1 if position.get("direction", "long") == "long" else -1
-    gross = (p - avg) * held * mult * direction
+    # cost_basis keeps the exact total; avg_cost is rounded for display.
+    basis = D(position["cost_basis"]) if position.get("cost_basis") is not None \
+        else D(position["avg_cost"]) * held * mult
+    gross = (p * held * mult - basis) * direction
     net = gross - D(position.get("open_commission") or 0)
-    basis = avg * held * mult
     return {
         "current_price": float(p),
         "market_value": money(p * held * mult),

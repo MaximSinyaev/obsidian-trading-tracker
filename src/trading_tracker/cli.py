@@ -242,6 +242,7 @@ def add(
     """Record a fill (BUY or SELL). Realized P&L is computed automatically."""
     cfg = _cfg()
     conn = db.init_db(cfg.db_path)
+    ticker = ticker.strip().upper()
     src = source or cfg.defaults.source
     if external_id and db.find_by_external_id(conn, src, external_id):
         _fail(f"Trade with external id {external_id!r} from {src!r} already exists")
@@ -1075,13 +1076,16 @@ def fx_rate(
     rate = analytics.fetch_fx_rate(base, quote)
 
     if rate is None:
-        console.print(f"[red]Could not fetch rate for {base.upper()}/{quote.upper()}[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"  [cyan]{base.upper()}/{quote.upper()}[/cyan] = [bold]{rate:.4f}[/bold]")
+        _fail(f"Could not fetch rate for {base.upper()}/{quote.upper()}")
+    data = {"base": base.upper(), "quote": quote.upper(), "rate": rate, "source": "yahoo"}
     if amount is not None:
-        converted = round(amount * rate, 2)
-        console.print(f"  {amount:.2f} {base.upper()} = [bold]{converted:.2f} {quote.upper()}[/bold]")
+        data["amount"], data["converted"] = amount, round(amount * rate, 2)
+
+    def human() -> None:
+        console.print(f"  [cyan]{base.upper()}/{quote.upper()}[/cyan] = [bold]{rate:.4f}[/bold]")
+        if amount is not None:
+            console.print(f"  {amount:.2f} {base.upper()} = [bold]{data['converted']:.2f} {quote.upper()}[/bold]")
+    _emit(data, human)
 
 
 @fx_app.command("matrix")
@@ -1098,11 +1102,14 @@ def fx_matrix(
         ccy_list = cfg.fx.currencies if cfg.fx.currencies else DEFAULT_CURRENCIES
 
     if len(ccy_list) < 2:
-        console.print("[red]Need at least 2 currencies.[/red]")
-        raise typer.Exit(1)
+        _fail("Need at least 2 currencies.")
 
     _require_yahoo()
     rates = analytics.fetch_fx_matrix(ccy_list)
+    if STATE.json:
+        _emit({"currencies": ccy_list, "source": "yahoo",
+               "rates": [{"base": b, "quote": q, "rate": r} for (b, q), r in rates.items()]})
+        return
 
     table = Table(title="FX Cross Rates")
     table.add_column("", style="cyan bold")
@@ -1138,20 +1145,17 @@ def fx_convert(
     rate = analytics.fetch_fx_rate(from_currency, to_currency)
 
     if rate is None:
-        console.print(f"[red]Could not fetch rate for {from_currency.upper()}/{to_currency.upper()}[/red]")
-        raise typer.Exit(1)
+        _fail(f"Could not fetch rate for {from_currency.upper()}/{to_currency.upper()}")
 
     result = round(amount * rate, 2)
-    console.print(
-        f"  {amount:,.2f} {from_currency.upper()} = "
-        f"[bold]{result:,.2f} {to_currency.upper()}[/bold]"
-        f"  [dim](rate: {rate:.4f})[/dim]"
-    )
+    _emit({"amount": amount, "from": from_currency.upper(), "to": to_currency.upper(), "rate": rate,
+           "converted": result, "source": "yahoo"},
+          lambda: console.print(
+              f"  {amount:,.2f} {from_currency.upper()} = "
+              f"[bold]{result:,.2f} {to_currency.upper()}[/bold]"
+              f"  [dim](rate: {rate:.4f})[/dim]"))
 
 
-
-if __name__ == "__main__":
-    app()
 
 
 def run() -> None:
@@ -1176,3 +1180,7 @@ def run() -> None:
                                     ensure_ascii=False) + "\n")
         sys.exit(1)
     sys.exit(code if isinstance(code, int) else 0)
+
+
+if __name__ == "__main__":
+    run()

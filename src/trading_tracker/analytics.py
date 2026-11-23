@@ -95,7 +95,7 @@ def compute_stats(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
 
     # Expectancy: (win_rate * avg_win) - (loss_rate * avg_loss)
     wr = win_rate / 100
-    expectancy = round(wr * avg_win + (1 - wr) * avg_loss, 2)  # avg_loss is already negative
+    expectancy = round(sum(pnls) / len(pnls), 2) if pnls else 0.0  # average net P&L per record
 
     return {
         "total_trades": len(pnls),

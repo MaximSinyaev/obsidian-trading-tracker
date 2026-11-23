@@ -51,7 +51,7 @@ def max_drawdown(curve: list[dict[str, Any]]) -> dict[str, Any]:
     if not curve:
         return {"amount": 0.0, "peak_date": None, "trough_date": None}
     worst, peak_date, trough_date = 0.0, None, None
-    running_peak, running_peak_date = 0.0, curve[0]["date"]
+    running_peak, running_peak_date = 0.0, None  # equity is 0 before the first close
     for p in curve:
         if p["equity"] >= running_peak:
             running_peak, running_peak_date = p["equity"], p["date"]
@@ -210,7 +210,7 @@ def build_report(
         stop = _adjusted_stop(entries, events, p["ticker"])
         sign = 1 if p["direction"] == "long" else -1
         # Money lost if the stop fills (negative = profit locked in by the stop).
-        risk = (p["avg_cost"] - stop) * sign * p["shares"] * p["multiplier"] if stop else None
+        risk = (p["cost_basis"] - stop * p["shares"] * p["multiplier"]) * sign if stop else None
         tags: list[str] = []
         for t in entries:
             try:

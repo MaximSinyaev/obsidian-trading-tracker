@@ -84,6 +84,7 @@ DATE_FORMATS = [
     "%d.%m.%Y %H:%M",
     "%d.%m.%Y",
     "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%d, %H:%M:%S",  # IBKR activity statement
     "%Y/%m/%d",
 ]
 
@@ -105,9 +106,14 @@ PRESETS: dict[str, dict[str, Any]] = {
     "freedom": {
         # Freedom Finance / Freedom24 / Tradernet trade report (CSV or XLS): Russian or English
         # headers, "1 555 200,00" numbers, dd.mm.yyyy dates, tickers like AAPL.US.
+        # The JSON report ("trades.detailed") uses short keys: p, q, instr_nm, curr_c.
         "prefer": {"timestamp": ["датасделки", "tradedate", "date"],
                    "external_id": ["idсделки", "tradeid", "номерсделки"],
-                   "action": ["операция", "operation"], "ticker": ["тикер", "ticker"]},
+                   "action": ["операция", "operation"], "ticker": ["тикер", "ticker", "instrnm"],
+                   "price": ["цена", "p"], "shares": ["колво", "q"], "currency": ["валюта", "currc"],
+                   "instrument": ["instrkind", "типбумаги"]},
+        "ignore": ["notes"],  # the JSON "comment" is boilerplate (market, fee tariff)
+        "option_multiplier": 100,
         "source": "freedom",
         "dayfirst": True,
         "decimal_comma": True,
@@ -119,6 +125,20 @@ PRESETS: dict[str, dict[str, Any]] = {
 # Operations that look like a sale or purchase but are not trades.
 NON_TRADE_WORDS = ("репо", "repo", "конвертац", "conversion", "dividend", "дивиденд", "купон",
                    "coupon", "налог", "tax", "fee", "commission", "комиссия", "transfer", "перевод")
+
+
+def parse_instrument(value: Any, default: str = "stock") -> str:
+    if value is None or str(value).strip() == "":
+        return default
+    word = _norm(str(value))
+    if word in INSTRUMENT_MAP:
+        return INSTRUMENT_MAP[word]
+    for needle, kind in (("опцион", "option"), ("option", "option"), ("фьючерс", "future"),
+                         ("future", "future"), ("etf", "etf"), ("фонд", "etf"), ("облигац", "bond"),
+                         ("bond", "bond"), ("акци", "stock"), ("валют", "fx"), ("crypto", "crypto")):
+        if needle in word:
+            return kind
+    return str(value).strip().lower()
 
 
 def _norm(name: str) -> str:
@@ -142,7 +162,9 @@ def parse_number(value: Any, decimal_comma: bool | None = None) -> float | None:
         return None
     negative = s.startswith("(") and s.endswith(")")
     s = s.strip("()")
-    s = re.sub(r"[^\d,.\-+eE]", "", s)
+    # Keep scientific notation (1.2E-5) but drop unit suffixes such as "1.20000000ETH" or "10 USD".
+    m = re.match(r"^[^\d\-+.,]*([\-+]?[\d.,]+(?:[eE][\-+]?\d+)?)", s)
+    s = m.group(1) if m else ""
     if "," in s and "." in s:
         s = s.replace(",", "") if s.rfind(",") < s.rfind(".") else s.replace(".", "").replace(",", ".")
     elif "," in s:
@@ -187,9 +209,10 @@ def parse_side(value: Any, quantity: float | None) -> str | None:
         word = _norm(str(value))
         if any(w in word for w in NON_TRADE_WORDS):
             return None
-        if word in BUY_WORDS or any(word.startswith(w) for w in ("buy", "покуп")):
+        # "Market buy", "Limit sell", "Stop sell" (Trading 212), "buy_to_open"...
+        if word in BUY_WORDS or word.startswith(("buy", "покуп")) or word.endswith("buy"):
             return "BUY"
-        if word in SELL_WORDS or any(word.startswith(w) for w in ("sell", "продаж")):
+        if word in SELL_WORDS or word.startswith(("sell", "продаж")) or word.endswith("sell"):
             return "SELL"
         return None
     if quantity is not None and quantity != 0:
@@ -206,6 +229,7 @@ class ImportResult:
     duplicates: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    dividends: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +242,8 @@ class ImportResult:
             "imported": self.imported,
             "duplicates": self.duplicates,
             "skipped": self.skipped,
+            "dividend_count": len(self.dividends),
+            "dividends": self.dividends,
             "notes": self.notes,
         }
 
@@ -239,6 +265,9 @@ def map_columns(headers: list[str], preset: str = "generic",
         if col not in headers:
             raise ValueError(f"column {col!r} not found; columns: {', '.join(headers)}")
         mapping[fld] = col
+    for fld in PRESETS.get(preset, {}).get("ignore", []):
+        if fld not in (overrides or {}):
+            mapping.pop(fld, None)
     return mapping
 
 
@@ -309,15 +338,22 @@ def read_rows(path: str | Path | None = None, text: str | None = None) -> tuple[
     stripped = text.lstrip()
     if stripped.startswith("[") or stripped.startswith("{"):
         data = json.loads(stripped)
+        if is_freedom_report(data):
+            data = data["trades"]["detailed"]
+            fmt = "freedom-json"
+        else:
+            fmt = "json"
         if isinstance(data, dict):
             data = data.get("trades", [data])
+        if not isinstance(data, list) or not all(isinstance(r, dict) for r in data):
+            raise ValueError("JSON must be a list of trade objects or {\"trades\": [...]}")
         rows = [dict(r) for r in data]
         headers: list[str] = []
         for r in rows:
             for k in r:
                 if k not in headers:
                     headers.append(k)
-        return headers, rows, "json"
+        return headers, rows, fmt
     lines = text.splitlines()
     sample = "\n".join(lines[:60])
     try:
@@ -358,6 +394,8 @@ def import_rows(
     result = ImportResult(dry_run=dry_run, source=source, columns=mapping)
     touched: set[str] = set()
     seen_ids: set[str] = set()
+    fee_skipped: dict[tuple[str, str], int] = {}
+    fp_count: dict[str, int] = {}
 
     dc = cfg.get("decimal_comma")
 
@@ -395,6 +433,8 @@ def import_rows(
             row = {**row, mapping["timestamp"]: f"{row[mapping['timestamp']]} {row[time_col]}".strip()}
         try:
             ticker = str(get(row, "ticker") or "").strip().upper()
+            if preset == "freedom":
+                ticker = ticker.lstrip("+")
             if not ticker:
                 raise ValueError("missing ticker")
             qty = num(get(row, "shares"))
@@ -402,7 +442,7 @@ def import_rows(
             for suffix in cfg.get("strip_suffixes", []):
                 if ticker.endswith(suffix):
                     ticker = ticker[: -len(suffix)]
-            if cfg.get("skip_fx") and ("/" in ticker or _norm(str(get(row, "instrument") or "")) in {"fx", "cash", "валюта"}):
+            if cfg.get("skip_fx") and ("/" in ticker or parse_instrument(get(row, "instrument"), "") == "fx"):
                 raise ValueError(f"currency conversion {ticker}, not a trade")
             if side is None:
                 raw_side = get(row, "action")
@@ -424,25 +464,38 @@ def import_rows(
             if commission and fee_ccy and fee_ccy != currency:
                 # Never convert silently: keep the fee out of P&L and say so.
                 fee_note = f"commission {commission:g} {fee_ccy} not included (trade currency {currency})"
-                result.notes.append(f"row {i}: {fee_note}; add it with `trade edit` once converted")
+                fee_skipped[(fee_ccy, currency)] = fee_skipped.get((fee_ccy, currency), 0) + 1
                 commission = 0.0
             multiplier = num(get(row, "multiplier")) or defaults.get("multiplier") or 1.0
-            instr_raw = get(row, "instrument")
-            instrument = INSTRUMENT_MAP.get(_norm(str(instr_raw)), str(instr_raw).lower()) \
-                if instr_raw else defaults.get("instrument", "stock")
+            instrument = parse_instrument(get(row, "instrument"), defaults.get("instrument", "stock"))
+            if instrument == "option" and get(row, "multiplier") in (None, "") and cfg.get("option_multiplier"):
+                multiplier = float(cfg["option_multiplier"])
             ext = get(row, "external_id")
             ext = str(ext).strip() if ext not in (None, "") else None
-            ext = ext or db.trade_fingerprint(ticker, side, abs(qty), abs(price), ts)
+            if ext is None:
+                # Identical fills without a broker id are legitimate (two 10-share lots at the same
+                # second): number repeats within the file so re-imports still deduplicate.
+                fp = db.trade_fingerprint(ticker, side, abs(qty), abs(price), ts)
+                fp_count[fp] = fp_count.get(fp, 0) + 1
+                ext = fp if fp_count[fp] == 1 else f"{fp}#{fp_count[fp]}"
             tags_raw = get(row, "tags")
-            tags = [t.strip() for t in str(tags_raw).split(",") if t.strip()] if tags_raw else []
+            if isinstance(tags_raw, (list, tuple)):
+                tags = [str(t).strip() for t in tags_raw if str(t).strip()]
+            else:
+                tags = [t.strip() for t in str(tags_raw).split(",") if t.strip()] if tags_raw else []
+            notes_raw = get(row, "notes")
+            if notes_raw is not None and not isinstance(notes_raw, str):
+                notes_raw = json.dumps(notes_raw, ensure_ascii=False)
             record = {
                 "row": i, "ticker": ticker, "action": side, "shares": abs(qty), "price": abs(price),
                 "commission": commission, "timestamp": ts, "currency": currency,
                 "multiplier": multiplier, "instrument": instrument, "external_id": ext,
                 "strategy": get(row, "strategy") or defaults.get("strategy"),
-                "notes": "; ".join(x for x in (get(row, "notes"), fee_note) if x) or None, "tags": tags,
+                "notes": "; ".join(x for x in (notes_raw, fee_note) if x) or None, "tags": tags,
                 "stop_loss": num(get(row, "stop_loss")),
             }
+            record["currency"] = currency = db.normalize_currency(currency)
+            db._validate_trade(side, abs(qty), abs(price), commission, multiplier)
         except (ValueError, TypeError) as exc:
             result.skipped.append({"row": i, "reason": str(exc)})
             continue
@@ -462,13 +515,70 @@ def import_rows(
             touched.add(ticker)
         result.imported.append(record)
 
+    for (fee_ccy, ccy), n in fee_skipped.items():
+        result.notes.append(f"{n} row(s): commission charged in {fee_ccy} on {ccy} trades was not "
+                            f"included (no silent FX conversion); it is noted on each trade")
     if not dry_run:
         db.rebuild_closed_trades(conn, touched)
         conn.commit()
     return result
 
 
+def is_freedom_report(data: Any) -> bool:
+    """Freedom Finance / Tradernet broker report JSON: {"trades": {"detailed": [...]}, "cash_flows": ...}."""
+    return (isinstance(data, dict) and isinstance(data.get("trades"), dict)
+            and isinstance(data["trades"].get("detailed"), list))
+
+
+_DIV_TICKER = re.compile(r"\(([A-Z0-9_\-]+(?:\.[A-Z]{2,3})?)\)")
+
+
+def _freedom_dividends(conn: sqlite3.Connection, data: dict[str, Any], result: ImportResult,
+                       dry_run: bool) -> None:
+    flows = (data.get("cash_flows") or {}).get("detailed") or []
+    taxes = 0
+    for n, flow in enumerate(flows, start=1):
+        kind = str(flow.get("type_id") or "").lower()
+        if kind == "tax":
+            taxes += 1
+            continue
+        if kind != "dividend":
+            continue
+        tickers = _DIV_TICKER.findall(str(flow.get("comment") or ""))
+        amount = parse_number(flow.get("amount"))
+        if not tickers or amount is None:
+            result.skipped.append({"row": f"dividend {n}", "reason": "could not find ticker or amount"})
+            continue
+        ticker = tickers[-1]
+        for suffix in PRESETS["freedom"]["strip_suffixes"]:
+            if ticker.endswith(suffix):
+                ticker = ticker[: -len(suffix)]
+        ts = db.normalize_timestamp(str(flow.get("date")))
+        ccy = str(flow.get("currency") or "USD").upper()
+        ext = f"div:{ticker}:{ts[:10]}:{amount:g}:{ccy}"
+        exists = conn.execute("SELECT 1 FROM events WHERE source = 'freedom' AND external_id = ?",
+                              (ext,)).fetchone()
+        rec = {"ticker": ticker, "amount": amount, "currency": ccy, "date": ts[:10]}
+        if exists:
+            continue
+        if not dry_run:
+            db.add_event(conn, ticker, "dividend", amount=amount, currency=ccy, timestamp=ts,
+                         source="freedom", external_id=ext, commit=False)
+        result.dividends.append(rec)
+    if taxes:
+        result.notes.append(f"{taxes} tax row(s) in cash flows are not linked to a dividend; add them with "
+                            "`trade event dividend TICKER AMOUNT --tax T` if they are dividend withholding")
+
+
 def import_file(conn: sqlite3.Connection, path: str | Path | None = None, *, text: str | None = None,
                 **kwargs: Any) -> ImportResult:
-    headers, rows, _fmt = read_rows(path, text)
-    return import_rows(conn, headers, rows, **kwargs)
+    headers, rows, fmt = read_rows(path, text)
+    if fmt == "freedom-json" and kwargs.get("preset", "generic") == "generic":
+        kwargs["preset"] = "freedom"
+    result = import_rows(conn, headers, rows, **kwargs)
+    if fmt == "freedom-json":
+        raw = Path(path).read_text(encoding="utf-8-sig") if path and str(path) != "-" else text
+        _freedom_dividends(conn, json.loads(raw or "{}"), result, kwargs.get("dry_run", False))
+        if not kwargs.get("dry_run"):
+            conn.commit()
+    return result

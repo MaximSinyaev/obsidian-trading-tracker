@@ -124,7 +124,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   const activity = (c) => R.closed_trades.filter((t) => t.currency === c).length * 10 + R.open_positions.filter((p) => p.currency === c).length;
   let ccy = [...R.currencies].sort((a, b) => activity(b) - activity(a))[0] || "USD";
   let bdKey = "by_strategy";
-  const money = (v, c) => v == null ? "–" : (v < 0 ? "−" : "") + (SYM[c || ccy] || (c || ccy) + " ") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = (v, c) => v == null ? "–" : (v < 0 ? "−" : "") + (SYM[c || ccy] || esc(c || ccy) + " ") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const signed = (v, c) => v == null ? "–" : `<span class="${v >= 0 ? "pos" : "neg"}">${v > 0 ? "+" : ""}${money(v, c)}</span>`;
   const num = (v, d = 2) => v == null ? "–" : (Math.abs(v) < Math.pow(10, -d) / 2 ? 0 : Number(v)).toLocaleString(undefined, { maximumFractionDigits: d });
   const tip = $("tip");

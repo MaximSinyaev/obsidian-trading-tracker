@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -59,10 +60,36 @@ def migrate(conn: sqlite3.Connection) -> int:
         if version > current:
             conn.executescript(migration.read_text())
             applied = True
+    if applied and current < 5:
+        _normalize_legacy_rows(conn)
     if applied:
         rebuild_closed_trades(conn)
         conn.commit()
     return _get_schema_version(conn)
+
+
+def _normalize_legacy_rows(conn: sqlite3.Connection) -> None:
+    """v0.5 stored --date strings and tickers as typed. Normalise them so fills sort in time order."""
+    from trading_tracker.importers import parse_timestamp  # local import: importers imports db
+
+    for table in ("trades", "events"):
+        try:
+            rows = conn.execute(f"SELECT id, ticker, timestamp FROM {table}").fetchall()
+        except sqlite3.OperationalError:
+            continue
+        for row in rows:
+            ts = row["timestamp"]
+            try:
+                new_ts = normalize_timestamp(ts) if ts else ts
+            except ValueError:
+                try:
+                    new_ts = parse_timestamp(ts, dayfirst=True)
+                except ValueError:
+                    new_ts = ts  # left for `db validate` to report
+            ticker = (row["ticker"] or "").strip().upper()
+            if new_ts != ts or ticker != row["ticker"]:
+                conn.execute(f"UPDATE {table} SET timestamp = ?, ticker = ? WHERE id = ?",
+                             (new_ts, ticker, row["id"]))
 
 
 def _get_schema_version(conn: sqlite3.Connection) -> int:
@@ -111,6 +138,18 @@ def normalize_date_filter(value: str | None, name: str = "date") -> str | None:
         return normalize_timestamp(raw)
     except ValueError:
         raise ValueError(f"invalid {name} {value!r}; use YYYY-MM-DD (or YYYY-MM, YYYY)") from None
+
+
+_CURRENCY_RE = re.compile(r"^[A-Z0-9]{2,10}$")
+
+
+def normalize_currency(value: str | None, default: str | None = "USD") -> str | None:
+    if value is None or str(value).strip() == "":
+        return default
+    ccy = str(value).strip().upper()
+    if not _CURRENCY_RE.match(ccy):
+        raise ValueError(f"invalid currency code {value!r}; use a code like USD, EUR, JPY, USDT")
+    return ccy
 
 
 _ACTION_WORDS = {"BUY": "BUY", "B": "BUY", "BOT": "BUY", "BOUGHT": "BUY", "ПОКУПКА": "BUY",
@@ -202,7 +241,7 @@ def add_trade(
             ticker_u, action_u, shares, price, commission, ts, strategy, setup,
             confidence, stop_loss, target_1, target_2, entry_plan, note_path,
             source, json.dumps(tags or []), notes, position_group, asset_type,
-            instrument, (currency or "USD").upper(), leverage, multiplier, external_id,
+            instrument, normalize_currency(currency), leverage, multiplier, external_id,
         ),
     )
     trade_id: int = cur.lastrowid  # type: ignore[assignment]
@@ -225,10 +264,12 @@ def edit_trade(conn: sqlite3.Connection, trade_id: int, **fields: Any) -> bool:
         updates["tags"] = json.dumps(updates["tags"])
     if "ticker" in updates:
         updates["ticker"] = updates["ticker"].upper().strip()
+        if not updates["ticker"]:
+            raise ValueError("ticker cannot be empty")
     if "action" in updates:
         updates["action"] = normalize_action(updates["action"])
     if "currency" in updates:
-        updates["currency"] = updates["currency"].upper()
+        updates["currency"] = normalize_currency(updates["currency"])
     if "timestamp" in updates:
         updates["timestamp"] = normalize_timestamp(updates["timestamp"])
     merged = {**existing, **updates}
@@ -297,7 +338,7 @@ def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: st
         "INSERT INTO events (ticker, kind, timestamp, ratio, amount, tax, currency, notes, source, external_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (ticker.upper(), kind, normalize_timestamp(timestamp), ratio, amount, tax or 0,
-         currency.upper() if currency else None, notes, source, external_id),
+         normalize_currency(currency, None), notes, source, external_id),
     )
     rebuild_closed_trades(conn, [ticker])
     if commit:
@@ -554,7 +595,7 @@ def set_price(conn: sqlite3.Connection, ticker: str, price: float, *,
         "INSERT INTO prices (ticker, price, currency, as_of, source) VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(ticker) DO UPDATE SET price = excluded.price, currency = excluded.currency, "
         "as_of = excluded.as_of, source = excluded.source",
-        (ticker.upper(), price, currency.upper() if currency else None,
+        (ticker.upper(), price, normalize_currency(currency, None),
          normalize_timestamp(as_of), source),
     )
     conn.commit()
@@ -615,6 +656,12 @@ def delete_journal_entry(conn: sqlite3.Connection, entry_id: int) -> bool:
 def validate_db(conn: sqlite3.Connection) -> list[str]:
     """Consistency checks. Returns a list of human-readable issues."""
     issues: list[str] = []
+    for row in conn.execute("SELECT id, timestamp FROM trades"):
+        try:
+            datetime.fromisoformat(row["timestamp"])
+        except (TypeError, ValueError):
+            issues.append(f"trade #{row['id']}: timestamp {row['timestamp']!r} is not ISO; fix with `trade edit "
+                          f"{row['id']} --date YYYY-MM-DDTHH:MM`")
     result = run_ledger(conn)
     issues.extend(result.warnings)
 
