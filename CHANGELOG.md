@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- trading-idea-analyst, risk rule 3: the event size factor and the 3-day event time stop apply
+  only when a thesis rests on a single event or decision. Geopolitical and commodity ideas
+  still get the "what if a decision-maker says the opposite tomorrow?" check, but a macro
+  commodity thesis keeps its own horizon instead of becoming a 3-day trade.
+
 ### Fixed
 - trading-idea-analyst, journal handoff: scoring an expired idea no longer tells the agent to
   run `trade price set --as-of <time stop>`, which replaced the live mark of an open position

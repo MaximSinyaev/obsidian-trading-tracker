@@ -159,10 +159,11 @@ These are process rules. The user can override the numbers in `sources.toml`
 2. **No idea without a stop.** If a sensible stop cannot be defined, the idea
    is not ready. Say so instead of inventing one.
 3. **Event / headline risk.** For geopolitical, commodity, or single-event
-   ideas, ask "What if a key decision-maker says the opposite tomorrow?" and
-   apply the event size factor (default 0.5× the user's normal size) and an
-   event time stop (default 3 trading days unless hedged; calendar days for
-   markets that trade 24/7, such as crypto).
+   ideas, ask "What if a key decision-maker says the opposite tomorrow?". When
+   the thesis rests on a single event or decision, also apply the event size
+   factor (default 0.5× the user's normal size) and an event time stop
+   (default 3 trading days unless hedged; calendar days for markets that trade
+   24/7, such as crypto). Otherwise the idea keeps its own horizon and time stop.
 4. **Leveraged and inverse ETFs.** Size factor default 0.4×, hard time stop
    default 5 trading days for 3× products (calendar days for 24/7 markets,
    including leveraged crypto perpetuals, where funding replaces decay), and
