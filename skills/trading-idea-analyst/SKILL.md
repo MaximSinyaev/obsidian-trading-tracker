@@ -184,7 +184,7 @@ These are process rules. The user can override the numbers in `sources.toml`
    journal.
 8. **Never compute the user's P&L by hand.** Read it from the journal
    (`trade --json report`) if present, otherwise use the figures the user's
-   broker shows. Paper results of ideas (percent move from the reference
+   broker shows. Paper results of ideas (paper R or percent move from the reference
    price) are fine and are labelled as paper.
 9. **Stop on the right side.** A long's stop is below the reference price, a
    short's above it; targets on the opposite side. Check this before writing
