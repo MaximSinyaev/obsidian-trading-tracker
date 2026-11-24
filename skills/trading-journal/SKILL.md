@@ -39,7 +39,7 @@ otherwise the same fill lands on a different date than on their laptop.
 If the CLI is missing, install it once:
 
 ```bash
-uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.0"
 ```
 
 ## Workflows
