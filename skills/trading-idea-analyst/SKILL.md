@@ -90,7 +90,8 @@ Rules:
 From the scan, pick 2–4 theses. For each write:
 - **Claim** in one sentence ("Rates stay higher for longer; mega-cap
   concentration is fragile").
-- **Evidence** (3+ points from the scan, with dates).
+- **Evidence** (3+ points from the scan, with dates, or one strong signal
+  labelled as such).
 - **Counter-evidence** (at least 2 points). A thesis without counter-evidence
   has not been examined.
 - **Horizon**: tactical (days–weeks), medium (1–6 months), structural (6+ months).

@@ -1,7 +1,9 @@
 # Bias checklist (run before generating ideas)
 
-Answer each line in one sentence inside the report. A "yes" on any of the first
-four means go back one step.
+Go through every line; the report shows only the lines that flag something.
+A "yes" on 2 or 4 means go back one step. A "yes" on 1 or 3: fix it if you can;
+if not, keep the thesis, say it rests on one signal or on recent news, and cap
+its confidence at 2. Never pad a thesis with weaker points to pass a check.
 
 1. **Headline-first?** Did any thesis start from a single news story rather
    than from at least three items in different scan sections?
