@@ -67,7 +67,7 @@ negative = profit locked), target, thesis, tags[]`
 | `dashboard [-o file.html --from --to --ticker --strategy --title --open]` | `{path, closed_trades, open_positions, currencies}` |
 
 **summary**: `closed_trades, wins, losses, win_rate, gross_pnl, commissions,
-net_pnl, dividends, net_pnl_with_income, avg_win, avg_loss, best_trade,
+net_pnl, dividends, funding, net_pnl_with_income, avg_win, avg_loss, best_trade,
 worst_trade, profit_factor (null = no losses), expectancy, avg_hold_days_winners,
 avg_hold_days_losers, avg_r, trades_with_r, max_drawdown {amount, peak_date,
 trough_date}, open_positions, open_cost_basis, unrealized_pnl,
@@ -95,7 +95,7 @@ entry_notes, exit_notes), income[], journal[], warnings[], method}`
 
 | Command | `data` |
 |---|---|
-| `import FILE\|- [--preset generic\|ibkr\|freedom\|tinvest --map field=Column --dry-run --ccy --source --strategy --date-format FMT]` | `{imported_count, duplicate_count, skipped_count, dividend_count, columns, imported[], duplicates[], skipped[{row, reason}], dividends[], events[], notes[]}` |
+| `import FILE\|- [--preset generic\|ibkr\|okx\|freedom\|tinvest --map field=Column --dry-run --ccy --source --strategy --date-format FMT]` | `{imported_count, duplicate_count, skipped_count, dividend_count, columns, imported[], duplicates[], skipped[{row, reason}], dividends[], events[], notes[], reconciliation (okx only)}` |
 | `sync export [--vault PATH]` | `{files, vault}` |
 | `db path` / `db init` / `db validate` / `db rebuild` | |
 | `fx rate USD KZT`, `fx convert 100 USD KZT`, `fx matrix` (Yahoo) | human output |

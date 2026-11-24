@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-24
+
+### Added
+- **OKX import** (`--preset okx`, detected automatically): the "Trading History" bill export of
+  perpetual swaps. Contract values are solved from the PnL column OKX prints on closing fills
+  (with a table of common instruments as a cross-check), liquidations are tagged and carry their
+  liquidation fee, and the import reports how many closes reconcile with OKX's own PnL.
+- **Funding events** (schema v6): `funding` joins `split` and `dividend`. The report adds a
+  `funding` total, included in `net_pnl_with_income`, and the dashboard shows it in the income tile.
+
+### Fixed
+- Broker times with an offset were converted to the zone of whichever machine ran the CLI, so a
+  laptop and a cloud agent stored different dates in one database. They now use
+  `[defaults] timezone` or `TRADE_TZ` (an IANA name); empty still means this machine's zone.
+  The unused `Asia/Almaty` default is gone.
+
+### Changed
+- The dashboard embeds only the fields it draws, so books with tens of thousands of fills
+  stay small (about 3× smaller); chart axes use compact labels such as `−12.5k`.
+
 ## [1.0.0] - 2026-11-24
 
 Turns the tracker into a journal that AI agents can drive safely, packaged as a

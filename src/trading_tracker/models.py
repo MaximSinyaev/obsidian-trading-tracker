@@ -107,7 +107,7 @@ class DatabaseConfig(BaseModel):
 
 class DefaultsConfig(BaseModel):
     commission: float = 0.0
-    timezone: str = "Asia/Almaty"
+    timezone: str = ""  # IANA zone for stored times; empty = this machine's zone (TRADE_TZ overrides)
     asset_type: str = "stock"
     source: str = "manual"
 

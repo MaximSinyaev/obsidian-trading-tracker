@@ -381,6 +381,15 @@ def _apply_event(ev: dict[str, Any], states: dict[str, _State],
         st.net *= ratio
         st.avg /= ratio
         return
+    if ev["kind"] == "funding":
+        # Perpetual-futures funding: signed cash flow (+ received, - paid), never re-signed.
+        currency = ev["currency"] or (st.currency if st else "USD")
+        income.append({
+            "event_id": ev["id"], "ticker": ev["ticker"], "timestamp": ev["timestamp"], "kind": "funding",
+            # Funding payments are often fractions of a cent: keep them exact, round only totals.
+            "gross": precise(ev["amount"]), "tax": 0.0, "net": precise(ev["amount"]), "currency": currency,
+        })
+        return
     if ev["kind"] == "dividend":
         net_amount = ev["amount"] - ev["tax"]
         if st is not None and st.net < -EPS and ev["amount"] > 0:
@@ -398,6 +407,7 @@ def _apply_event(ev: dict[str, Any], states: dict[str, _State],
             "event_id": ev["id"],
             "ticker": ev["ticker"],
             "timestamp": ev["timestamp"],
+            "kind": "dividend",
             "gross": money(-ev["amount"] if paid else ev["amount"]),
             "tax": 0.0 if paid else money(ev["tax"]),
             "net": money(net_amount),

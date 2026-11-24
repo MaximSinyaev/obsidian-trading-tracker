@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from trading_tracker import db
+from trading_tracker import db, okx
 
 # Canonical field → accepted column names (compared after normalising: lower
 # case, spaces/underscores/dashes/dots/slashes removed).
@@ -105,6 +105,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "dayfirst": True,
         "decimal_comma": True,
     },
+    "okx": {"source": "okx"},  # handled by trading_tracker.okx (bill-history CSV)
     "freedom": {
         # Freedom Finance / Freedom24 / Tradernet trade report (CSV or XLS): Russian or English
         # headers, "1 555 200,00" numbers, dd.mm.yyyy dates, tickers like AAPL.US.
@@ -282,6 +283,7 @@ class ImportResult:
     notes: list[str] = field(default_factory=list)
     dividends: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
+    reconciliation: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -297,6 +299,7 @@ class ImportResult:
             "dividend_count": len(self.dividends),
             "dividends": self.dividends,
             "events": self.events,
+            "reconciliation": self.reconciliation,
             "notes": self.notes,
         }
 
@@ -829,6 +832,12 @@ def _ibkr_flex_extras(conn: sqlite3.Connection, text: str, result: ImportResult,
 def import_file(conn: sqlite3.Connection, path: str | Path | None = None, *, text: str | None = None,
                 **kwargs: Any) -> ImportResult:
     headers, rows, fmt = read_rows(path, text)
+    if fmt == "csv" and (kwargs.get("preset") == "okx" or okx.is_okx_bills(headers)):
+        raw_text = _decode(Path(path).read_bytes()) if text is None else text
+        result = ImportResult(dry_run=kwargs.get("dry_run", False), source=kwargs.get("source") or "okx",
+                              columns={"format": "okx bill history"})
+        okx.import_okx(conn, raw_text, result, dry_run=result.dry_run, source=result.source)
+        return result
     if fmt == "freedom-json" and kwargs.get("preset", "generic") == "generic":
         kwargs["preset"] = "freedom"
     result = import_rows(conn, headers, rows, **kwargs)

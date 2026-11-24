@@ -12,9 +12,10 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from trading_tracker import ledger
 
@@ -103,23 +104,43 @@ def _get_schema_version(conn: sqlite3.Connection) -> int:
 # ── normalisation helpers ───────────────────────────────────────────────────
 
 
+# Zone that stored (naive) timestamps are in. None means this machine's local time.
+LOCAL_TZ: tzinfo | None = None
+
+
+def set_local_timezone(name: str | None) -> None:
+    """Use an IANA zone (``"Europe/London"``) for stored times; empty means this machine's zone.
+
+    Set it whenever more than one machine writes to a database (a laptop and a cloud agent),
+    otherwise the same broker time is stored as different local times.
+    """
+    global LOCAL_TZ
+    if not name or not str(name).strip():
+        LOCAL_TZ = None
+        return
+    try:
+        LOCAL_TZ = ZoneInfo(str(name).strip())
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"Unknown timezone {name!r}; use an IANA name such as 'America/New_York'") from exc
+
+
 def normalize_timestamp(value: str | None) -> str:
     """Parse an ISO-ish timestamp and return a sortable ISO string.
 
     Accepts ``2025-01-15``, ``2025-01-15 10:30``, ``2025-01-15T10:30:00`` and
-    timezone-aware variants. Times with an offset are converted to this
-    machine's local time and stored without an offset, so they sort correctly
-    against fills typed in local time.
+    timezone-aware variants. Times with an offset are converted to the journal's
+    timezone (``set_local_timezone``; this machine's zone by default) and stored
+    without an offset, so they sort correctly against fills typed in local time.
     """
     if value is None or str(value).strip() == "":
-        return datetime.now().isoformat(timespec="seconds")
+        return datetime.now(LOCAL_TZ).replace(tzinfo=None).isoformat(timespec="seconds")
     raw = str(value).strip().replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(raw)
     except ValueError as exc:
         raise ValueError(f"Unrecognised timestamp {value!r}; use ISO format YYYY-MM-DD[THH:MM[:SS]]") from exc
     if dt.tzinfo is not None:
-        dt = dt.astimezone().replace(tzinfo=None)
+        dt = dt.astimezone(LOCAL_TZ).replace(tzinfo=None)
     return dt.isoformat(timespec="seconds")
 
 
@@ -324,7 +345,8 @@ def find_by_external_id(conn: sqlite3.Connection, source: str, external_id: str)
 def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: str | None = None,
               ratio: float | None = None, amount: float | None = None, tax: float = 0,
               currency: str | None = None, notes: str | None = None, source: str = "manual",
-              external_id: str | None = None, commit: bool = True, force: bool = False) -> int:
+              external_id: str | None = None, commit: bool = True, force: bool = False,
+              rebuild: bool = True) -> int:
     kind = kind.lower()
     if kind == "split":
         if ratio is None or ratio <= 0:
@@ -338,15 +360,19 @@ def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: st
     elif kind == "dividend":
         if amount is None:
             raise ValueError("dividend needs an amount (total cash received, before tax)")
+    elif kind == "funding":
+        if amount is None:
+            raise ValueError("funding needs a signed amount (+ received, - paid)")
     else:
-        raise ValueError("kind must be 'split' or 'dividend'")
+        raise ValueError("kind must be 'split', 'dividend' or 'funding'")
     cur = conn.execute(
         "INSERT INTO events (ticker, kind, timestamp, ratio, amount, tax, currency, notes, source, external_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (ticker.upper(), kind, normalize_timestamp(timestamp), ratio, amount, tax or 0,
          normalize_currency(currency, None), notes, source, external_id),
     )
-    rebuild_closed_trades(conn, [ticker])
+    if rebuild:
+        rebuild_closed_trades(conn, [ticker])
     if commit:
         conn.commit()
     return cur.lastrowid  # type: ignore[return-value]

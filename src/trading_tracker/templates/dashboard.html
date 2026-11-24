@@ -128,6 +128,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   let ccy = [...R.currencies].sort((a, b) => activity(b) - activity(a))[0] || "USD";
   let bdKey = "by_strategy";
   const money = (v, c) => v == null ? "–" : (v < 0 ? "−" : "") + (SYM[c || ccy] || esc(c || ccy) + " ") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const axis = (v) => { const a = Math.abs(v), t = a >= 1e6 ? +(a / 1e6).toFixed(1) + "M" : a >= 1e4 ? +(a / 1e3).toFixed(1) + "k" : String(Math.round(a)); return (v < 0 ? "−" : "") + (SYM[ccy] || "") + t; };
   const signed = (v, c) => v == null ? "–" : `<span class="${v >= 0 ? "pos" : "neg"}">${v > 0 ? "+" : ""}${money(v, c)}</span>`;
   const num = (v, d = 2) => v == null ? "–" : (Math.abs(v) < Math.pow(10, -d) / 2 ? 0 : Number(v)).toLocaleString(undefined, { maximumFractionDigits: d });
   const tip = $("tip");
@@ -167,7 +168,9 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       ["Avg win / loss", has ? `<span class="pos">${money(s.avg_win)}</span> / <span class="neg">${money(s.avg_loss)}</span>` : "–", has ? `best ${money(s.best_trade)} · worst ${money(s.worst_trade)}` : ""],
       ["Max drawdown", has ? signed(s.max_drawdown.amount) : "–", s.max_drawdown.trough_date ? `${s.max_drawdown.peak_date} → ${s.max_drawdown.trough_date}` : "none"],
       ["Avg R", s.avg_r == null ? "–" : (s.avg_r > 0 ? "+" : "") + num(s.avg_r) + "R", `${s.trades_with_r} trades with stop`],
-      ["Dividends", s.dividends ? signed(s.dividends) : "–", `realized + income ${money(s.net_pnl_with_income)}`],
+      [s.funding && s.dividends ? "Income" : s.funding ? "Funding" : "Dividends",
+        (s.dividends || s.funding) ? signed((s.dividends || 0) + (s.funding || 0)) : "–",
+        (s.funding && s.dividends ? `dividends ${money(s.dividends)} · funding ${money(s.funding)} · ` : "") + `realized + income ${money(s.net_pnl_with_income)}`],
     ];
     $("kpis").innerHTML = tiles.map(([l, v, n]) => `<div class="card kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="note">${n}</div></div>`).join("");
   }
@@ -186,7 +189,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     let dd = `M${xs(0)},${dy(0)} ` + pts.map((p, i) => `L${xs(i)},${dy(p.drawdown)}`).join(" ") + ` L${xs(pts.length - 1)},${dy(0)} Z`;
     const last = eq[eq.length - 1];
     const col = last >= 0 ? "var(--pos)" : "var(--neg)";
-    const ticks = [...new Set([lo, (lo + hi) / 2, hi].map((v) => Math.round(v)))].map((v) => `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${P.l - 6}" y="${ys(v) + 4}" text-anchor="end">${money(Math.round(v))}</text>`).join("");
+    const ticks = [...new Set([lo, (lo + hi) / 2, hi].map((v) => Math.round(v)))].map((v) => `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${P.l - 6}" y="${ys(v) + 4}" text-anchor="end">${axis(v)}</text>`).join("");
     const labels = [0, Math.floor((pts.length - 1) / 2), pts.length - 1].filter((v, i, a) => a.indexOf(v) === i)
       .map((i) => `<text x="${xs(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}">${pts[i].date}</text>`).join("");
     $("equity").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity curve">
@@ -195,7 +198,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       <path d="${line}" fill="none" stroke="${col}" stroke-width="2"/>
       <path d="${dd}" fill="var(--neg)" opacity="0.35"/>
       ${pts.length <= 3 ? pts.map((p, i) => `<circle cx="${xs(i)}" cy="${ys(p.equity)}" r="4" fill="${col}"/>`).join("") : ""}
-      <text x="${P.l - 6}" y="${dy(ddLo) + 4}" text-anchor="end">${money(Math.round(ddLo))}</text>
+      <text x="${P.l - 6}" y="${dy(ddLo) + 4}" text-anchor="end">${axis(ddLo)}</text>
       ${labels}
       <rect id="eqhit" x="${P.l}" y="0" width="${W - P.l - P.r}" height="${H}" fill="transparent"/>
       <line id="eqcur" y1="${P.t}" y2="${H - P.b}" stroke="var(--muted)" stroke-dasharray="3 3" style="display:none"/>

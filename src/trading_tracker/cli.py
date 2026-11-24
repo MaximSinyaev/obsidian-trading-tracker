@@ -9,6 +9,7 @@ agent never has to parse tables or guess.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import webbrowser
 from importlib.metadata import version as pkg_version
@@ -74,6 +75,10 @@ def main(
 
 def _cfg():
     cfg = load_config()
+    try:
+        db.set_local_timezone(os.environ.get("TRADE_TZ") or cfg.defaults.timezone)
+    except ValueError as exc:
+        _fail(str(exc))
     if STATE.db_override:
         cfg.database.path = STATE.db_override
     return cfg
@@ -571,7 +576,7 @@ def history(
 @app.command("import")
 def import_cmd(
     file: Annotated[str, typer.Argument(help="CSV or JSON file, or '-' for stdin")],
-    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | tinvest | freedom")] = "generic",
+    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | okx | freedom | tinvest")] = "generic",
     mapping: Annotated[Optional[list[str]], typer.Option("--map", help="field=Column override, repeatable")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Parse and report, write nothing")] = False,
     currency: Annotated[Optional[str], typer.Option("--currency", "--ccy", help="Default currency")] = None,
