@@ -18,8 +18,23 @@ broker_notes = ""                # e.g. "premarket access; options are expensive
 extra_regions = []               # e.g. ["EU", "Japan", "India"]
 max_theses = 4
 
+# Built-in default (no config needed): the macro checklist is covered with web
+# search against primary global sources: central bank sites and calendars
+# (Federal Reserve, ECB, BoJ, BoE, PBoC), official statistics (BLS, BEA, Eurostat,
+# NBS China), FRED for rates/credit/spreads, CME FedWatch for the implied rate
+# path, Cboe for VIX, EIA/OPEC for oil, company filings (SEC EDGAR) and an
+# economic calendar. Add your own sources below; they are read in addition.
+#
 # One block per source. kind: web | rss | telegram | newsletter | api | file
 # 'bias' is your own note on the source's slant, shown next to its summary.
+# --- Global examples ---
+[[sources]]
+name = "FRED (St. Louis Fed)"
+kind = "api"
+location = "https://fred.stlouisfed.org"   # free API key; yields, spreads, macro series
+focus = "rates, credit, macro data"
+bias = "none (data)"
+
 [[sources]]
 name = "Example macro newsletter"
 kind = "rss"
@@ -33,6 +48,26 @@ kind = "file"
 location = "~/research/broker-notes/"   # exported PDFs or notes; chat channels (Telegram, Discord) work via a tool or an export
 focus = "home market, earnings previews"
 bias = "broker house view"
+
+# --- Regional examples (uncomment what applies to you) ---
+# [[sources]]
+# name = "Your central bank"            # e.g. Bank of England, RBI, Bank of Japan
+# kind = "web"
+# location = "https://www.bankofengland.co.uk/monetary-policy"
+# focus = "home rates, currency"
+#
+# [[sources]]
+# name = "Your exchange's announcements" # e.g. LSE RNS, NSE India, a regional exchange
+# kind = "web"
+# location = ""
+# focus = "listings, corporate actions, local index"
+#
+# [[sources]]
+# name = "Local market channel"          # Telegram / Discord / X lists via a tool or export
+# kind = "telegram"
+# location = "@your_channel"
+# focus = "local news flow"
+# bias = "note the author's house view"
 
 [risk]
 event_size_factor = 0.5          # geopolitical / commodity / single-event ideas
