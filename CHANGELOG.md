@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-24
+
+### Fixed
+- Importing the same file twice under different presets (first without `--preset`, then with
+  `--preset ibkr`) booked every fill twice. Without `--source`, rows that match a trade from
+  another source by ticker, side, quantity, price and time are now duplicates and are reported
+  with `matches_trade_id` and `matches_source`.
+- OpenClaw metadata in SKILL.md pinned the CLI to v1.0.0 and described `TRADE_TZ` wrongly.
+
 ## [1.1.0] - 2026-11-24
 
 ### Added

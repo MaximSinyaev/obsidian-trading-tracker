@@ -75,6 +75,12 @@ already exists is skipped, so re-importing overlapping exports is safe. The
 source defaults to the preset name (`ibkr`, `okx`, `tinvest`) or `import`; pass
 `--source` to keep accounts apart.
 
+Without `--source`, a row that matches a trade from another source exactly
+(ticker, side, quantity, price and time) is also a duplicate, reported with
+`matches_trade_id` and `matches_source`. This catches the same file imported
+first without a preset and then with one. With `--source`, identical fills in
+two accounts are both kept.
+
 ## JSON (for agents pulling fills from an API)
 
 ```json

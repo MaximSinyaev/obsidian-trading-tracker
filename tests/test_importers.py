@@ -114,3 +114,25 @@ class TestImport:
         text = "date,ticker,side,qty,price\n2025-01-01,AAA,buy,1,10\nnot-a-date,BBB,buy,1,10\n"
         res = importers.import_file(conn, text=text)
         assert len(res.imported) == 1 and res.skipped[0]["row"] == 2
+
+
+class TestCrossSourceDuplicates:
+    def test_generic_then_preset_does_not_double(self, conn):
+        importers.import_file(conn, EXAMPLES / "ibkr_flex.csv", preset="generic")
+        before = [(c["ticker"], c["net_pnl"]) for c in db.get_closed_trades(conn)]
+        res = importers.import_file(conn, EXAMPLES / "ibkr_flex.csv", preset="ibkr")
+        assert not res.imported and len(res.duplicates) == 4
+        assert all(d["matches_source"] == "import" for d in res.duplicates)
+        assert any("another source" in n for n in res.notes)
+        assert [(c["ticker"], c["net_pnl"]) for c in db.get_closed_trades(conn)] == before
+
+    def test_explicit_source_keeps_second_account(self, conn):
+        importers.import_file(conn, EXAMPLES / "ibkr_flex.csv", preset="ibkr")
+        res = importers.import_file(conn, EXAMPLES / "ibkr_flex.csv", preset="ibkr", source="ibkr-joint")
+        assert len(res.imported) == 4 and not res.duplicates
+
+    def test_identical_fills_count_once_each(self, conn):
+        text = "ticker,side,qty,price,date\nAAA,buy,10,5,2025-01-02 10:00\nAAA,buy,10,5,2025-01-02 10:00\n"
+        importers.import_file(conn, text=text, source="a")
+        res = importers.import_file(conn, text=text + "AAA,buy,10,5,2025-01-02 10:00\n")
+        assert len(res.duplicates) == 2 and len(res.imported) == 1
