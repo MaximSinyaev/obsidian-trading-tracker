@@ -13,7 +13,7 @@ user owns: `trading-ideas.md` in the working folder by default, or
 ## Entry format
 
 One section per event. Every `IDEA` ends with the same `JSON:` line as the
-journal handoff, so the log can be imported into the journal later.
+journal handoff, so the log can be re-recorded in the journal later.
 
 ```markdown
 ## IDEA idea-20261124-rsp-rotation (2026-11-24)
@@ -28,8 +28,9 @@ User reports: bought at 181.90 (their fill, as told). Stop 170.
 Thesis weakened because ...
 
 ## CLOSED idea-20261124-rsp-rotation (2027-05-24)
-Outcome: expired | invalidated | stop hit | target hit
+Outcome: expired   (one of: target hit | stop hit | invalidated | expired)
 Close: 188.10 @ 2027-05-24T20:00:00Z (source)
+JSON: {"id":"idea-20261124-rsp-rotation","outcome":"expired","close":188.10,"close_ts":"2027-05-24T20:00:00Z"}
 
 ## LESSON idea-20261124-rsp-rotation (2027-05-24)
 ...
@@ -53,7 +54,7 @@ Same principles as the journal scorecard; nothing is dropped.
 3. **Idea quality (paper):** move in the idea's direction from `ref_price` to
    the close price, and whether stop or T1 came first if known. Show
    denominators: total, scored, expired-unscored, open. Break down by type
-   tag, horizon and confidence.
+   tag, horizon (from the `JSON:` line) and confidence.
 4. **Execution:** the log only knows what the user reported in `TAKEN`
    entries. Show the take rate (taken / all ideas). Do not compute the user's
    P&L; quote it only if they give it. For exact P&L per idea, the Trading

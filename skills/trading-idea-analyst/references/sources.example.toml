@@ -1,5 +1,6 @@
-# Copy to sources.toml next to this skill (or to the path in the
-# TRADING_IDEA_SOURCES environment variable) and edit. Nothing here is required:
+# Copy to ~/.config/trading-idea-analyst/sources.toml (or to the path in the
+# TRADING_IDEA_SOURCES environment variable) and edit; not into the skill folder,
+# which updates replace. Nothing here is required:
 # without it the skill uses web search and whatever market data tools exist.
 
 [user]
@@ -8,8 +9,9 @@ base_currency = "USD"
 home_central_bank = ""           # e.g. "Bank of England"; leave empty if the Fed is enough
 markets = ["US"]                 # markets the user can trade, e.g. ["US", "LSE", "XETRA", "TSE"]
 # Markets with weak public price coverage (smaller or regional exchanges): name a price
-# source here; the agent notes quotes in the idea log (or with the journal,
-# `trade price set`) so ideas on those tickers can still be scored.
+# source here; the agent notes quotes in the idea's own entries (idea log or journal)
+# so ideas on those tickers can still be scored. `trade price set` is only for the
+# current price of an open position.
 price_sources = {}               # e.g. { "SGX" = "broker platform" }
 instruments_allowed = ["stock", "etf"]   # add "option", "leveraged_etf", "future" if used
 broker_notes = ""                # e.g. "premarket access; options are expensive"
@@ -30,8 +32,8 @@ max_theses = 4
 # --- Global examples ---
 [[sources]]
 name = "FRED (St. Louis Fed)"
-kind = "api"
-location = "https://fred.stlouisfed.org"   # free API key; yields, spreads, macro series
+kind = "web"
+location = "https://fred.stlouisfed.org"   # yields, spreads, macro series
 focus = "rates, credit, macro data"
 bias = "none (data)"
 

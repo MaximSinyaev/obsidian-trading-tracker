@@ -5,7 +5,8 @@ The project has two parts:
 - **The `trade` CLI**: a Python program that keeps your trades in a local SQLite
   file and does every calculation.
 - **The skills** in [`skills/`](../skills/): instructions that teach an AI agent
-  to drive the CLI (`trading-journal`, plus `trading-idea-analyst` once it ships).
+  to drive the CLI (`trading-journal`), and `trading-idea-analyst` for macro-first
+  trade ideas, which works on its own and uses the journal when it is installed.
 
 Agents that support skills install the skill folder; the skill then installs
 the CLI on first use. You need [uv](https://docs.astral.sh/uv/) (recommended) or
@@ -41,6 +42,7 @@ Codex reads skills from `.agents/skills/` in your project and from
 git clone --depth 1 https://github.com/MaximSinyaev/agent-trading-journal /tmp/ttt
 mkdir -p ~/.agents/skills
 cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
+cp -r /tmp/ttt/skills/trading-idea-analyst ~/.agents/skills/   # optional: trade ideas
 ```
 
 Codex picks the skill automatically when you talk about trades. To call it
@@ -57,6 +59,7 @@ loads `~/.claude/skills/` and `~/.codex/skills/`, so one copy serves several age
 git clone --depth 1 https://github.com/MaximSinyaev/agent-trading-journal /tmp/ttt
 mkdir -p ~/.agents/skills
 cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
+cp -r /tmp/ttt/skills/trading-idea-analyst ~/.agents/skills/   # optional: trade ideas
 ```
 
 The agent applies the skill when it is relevant. To force it, type `/` in the
@@ -64,8 +67,8 @@ Agent chat and pick `trading-journal`.
 
 ## Other agents (Gemini CLI, OpenCode, Aider, ...)
 
-If the agent supports `SKILL.md` skills, copy `skills/trading-journal/` into its
-skills folder. Otherwise install the CLI yourself and point the agent at
+If the agent supports `SKILL.md` skills, copy `skills/trading-journal/` (and,
+for trade ideas, `skills/trading-idea-analyst/`) into its skills folder. Otherwise install the CLI yourself and point the agent at
 [`AGENTS.md`](../AGENTS.md) and
 [`skills/trading-journal/SKILL.md`](../skills/trading-journal/SKILL.md)
 (for example by adding them to its context or rules file).

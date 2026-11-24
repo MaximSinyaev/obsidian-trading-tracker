@@ -30,17 +30,14 @@ Events: 2026-12-10 FOMC
 Variants: plain RSP | hedge: long RSP / short SPY
 Confidence: 3
 Sources: ...
+JSON: {"id":"idea-20261124-rsp-rotation","ticker":"RSP","dir":"long","type":"macro","horizon":"structural","ref_price":182.40,"ref_ts":"2026-11-24T15:30:00Z","ccy":"USD","stop":170,"t1":196,"t2":205,"time_stop":"2027-05-24","confidence":3}
 IDEA
 )" --ticker RSP --kind plan --tags ai-idea,ai-bullish,ai-macro,structural,idea-20261124-rsp-rotation
 ```
 
-Keep the field names exactly as above, and **always end the block with one
-machine-readable line** starting with `JSON:`. The scorecard parses this line,
-not the prose, so a differently worded field above cannot break scoring:
-
-```
-JSON: {"id":"idea-20261124-rsp-rotation","ticker":"RSP","dir":"long","type":"macro","horizon":"structural","ref_price":182.40,"ref_ts":"2026-11-24T15:30:00Z","ccy":"USD","stop":170,"t1":196,"t2":205,"time_stop":"2027-05-24","confidence":3}
-```
+Keep the field names exactly as above, and **always end the block with the
+machine-readable `JSON:` line** shown last. The scorecard parses this line,
+not the prose, so a differently worded field above cannot break scoring.
 
 `dir` is `long` or `short`; dates are ISO; numbers are plain numbers. If a
 value is unknown use `null`, and never invent a reference price. `ccy` is the
@@ -53,7 +50,7 @@ for `long`, `stop` < `ref_price` < `t1`; for `short`, the reverse.
 Only when the user says they placed the order, with their actual fill.
 
 ```bash
-trade --json add RSP buy 5 181.90 --commission 0.22 \
+trade --json add RSP buy 5 181.90 --commission 0.22 --ccy USD --date 2026-11-25T14:32 \
   --sl 170 --tp1 196 --tp2 205 --confidence 3 \
   --strategy structural --setup equal-weight-rotation \
   --notes "idea-20261124-rsp-rotation: <thesis>. Exit if <triggers>. Time stop 2027-05-24." \
@@ -61,6 +58,9 @@ trade --json add RSP buy 5 181.90 --commission 0.22 \
   --source ai-analyst --group idea-20261124-rsp-rotation
 ```
 
+- `--ccy` is the instrument's quote currency (`ccy` in the `JSON:` line);
+  without it the trade is booked in USD. Pass `--date` when the fill was not
+  just now.
 - `--sl` (alias `--stop`) is the stop; the journal uses it for R multiples and
   risk to stop. Never record an AI idea trade without it.
 - A tag that is exactly `ai` or starts with `ai-` puts the trade in the AI
@@ -73,11 +73,12 @@ trade --json add RSP buy 5 181.90 --commission 0.22 \
 
 ```bash
 # Thesis review (position-review.md)
-trade --json journal add "REVIEW idea-...: thesis weakened because ..." --ticker RSP --kind review --tags ai-idea,idea-...
-# Exit trigger fired or time stop hit for an idea that was never taken
-trade --json journal add "CLOSED idea-...: invalidated | expired | target hit. Price at close: ... @ ... (source)" --ticker RSP --kind review --tags ai-idea,idea-...
+trade --json journal add "REVIEW idea-20261124-rsp-rotation: thesis weakened because ..." --ticker RSP --kind review --tags ai-idea,idea-20261124-rsp-rotation
+# Outcome (one of: target hit | stop hit | invalidated | expired), taken or not
+trade --json journal add 'CLOSED idea-20261124-rsp-rotation: expired. Price at close: 188.10 @ 2027-05-24 20:00 UTC (source)
+JSON: {"id":"idea-20261124-rsp-rotation","outcome":"expired","close":188.10,"close_ts":"2027-05-24T20:00:00Z"}' --ticker RSP --kind review --tags ai-idea,idea-20261124-rsp-rotation
 # Lesson after a broken thesis
-trade --json journal add "LESSON idea-...: ..." --ticker RSP --kind lesson --tags ai-idea,idea-...
+trade --json journal add "LESSON idea-20261124-rsp-rotation: ..." --ticker RSP --kind lesson --tags ai-idea,idea-20261124-rsp-rotation
 ```
 
 Every idea ends with one `CLOSED` review entry, taken or not, so the
@@ -101,10 +102,10 @@ claim never mixes them:
 2. Assign every idea exactly one status. Nothing is dropped:
    - `closed`: has a `CLOSED` review entry → use its close price.
    - `expired`: no `CLOSED` entry and the time stop has passed → look up the
-     price at the time stop (`trade --json price list`, or fetch one and
-     record it with `trade price set ... --as-of <time_stop>`), then write
-     the missing `CLOSED ... expired` entry so the record is complete. If no
-     price can be found, count it as `expired, unscored`.
+     price at the time stop with your own tools and write the missing
+     `CLOSED ... expired` entry with that price, its time and source. Never
+     use `trade price set` for a past price: it replaces the live mark of an
+     open position. If no price can be found, count it as `expired, unscored`.
    - `open`: time stop not reached yet.
 3. For scored ideas: move in the idea's direction from `ref_price` (%), and
    whether stop or T1 was hit first if prices along the way are known.
@@ -112,7 +113,7 @@ claim never mixes them:
    Hit rate is over **all** ideas past their time stop, with unscored ones
    shown next to it, never silently left out.
 5. Break down by type tag (`ai-macro`, `ai-news`, `ai-technical`,
-   `ai-event`), horizon and confidence.
+   `ai-event`), horizon (from the `JSON:` line) and confidence.
 
 ### B. Execution: trades taken from AI ideas
 
