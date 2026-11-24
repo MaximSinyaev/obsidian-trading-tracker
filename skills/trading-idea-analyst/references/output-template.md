@@ -12,7 +12,7 @@
 6. **Portfolio fit**: overlap with open positions, correlation, concentration
    flags.
 7. **What I would watch**: the 3 to 5 data points that would change the view.
-8. **Journal handoff**: the exact commands run or proposed.
+8. **Logged**: where the ideas were recorded (idea log path, or the journal commands run), or "not saved" if the user declined.
 9. **Disclaimer** (`disclaimer.md`).
 
 ## Idea card

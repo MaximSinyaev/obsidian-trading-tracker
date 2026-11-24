@@ -1,9 +1,11 @@
-# Journal handoff and scoring
+# Journal handoff and scoring (optional integration)
 
-This skill writes to the trading journal through its CLI (`trade`, from this
-repository). Always call it with `--json`; errors come back as
-`{"ok": false, "error": "..."}`. If the CLI is not installed, print the
-commands for the user instead of skipping the step.
+Use this file only when the Trading Journal CLI (`trade`) is available. Without
+it, use `idea-log.md` instead; the skill works fully without the journal.
+
+The journal adds exact P&L for the trades the user takes, so ideas can be
+scored against real execution, not only on paper. Always call the CLI with
+`--json`; errors come back as `{"ok": false, "error": "..."}`.
 
 ## Idea id
 
