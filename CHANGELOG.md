@@ -8,6 +8,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- trading-idea-analyst, report: "What I would watch" may add up to two loose threads (scan facts
+  that fit no thesis, each with one question for the user), so the user's own view has a place
+  in a full scan.
 - trading-idea-analyst, scorecard: ideas are scored in paper R (move from the reference price
   ÷ distance to the stop, shown with its inputs), hit rate is defined, and confidence for an
   idea type is lowered only after about 10 closed ideas with a negative median R, so a few

@@ -13,7 +13,9 @@
 5. **Idea cards**: one per idea (below), core ideas first, hedges last.
 6. **Portfolio fit**: overlap with open positions, correlation, concentration
    flags.
-7. **What I would watch**: the 3 to 5 data points that would change the view.
+7. **What I would watch**: the 3 to 5 data points that would change the view,
+   plus 0 to 2 loose threads: a dated scan fact that fits no thesis, with one
+   concrete question asking for the user's view. None is better than a weak one.
 8. **Logged**: where the ideas were recorded (idea log path, or the journal commands run), or "not saved" if the user declined.
 9. **Disclaimer** (`disclaimer.md`).
 
