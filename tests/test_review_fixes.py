@@ -342,3 +342,22 @@ def test_freedom_tax_is_linked_to_same_day_dividend(conn):
     res = importers.import_file(conn, text=json.dumps(FREEDOM_REPORT, ensure_ascii=False))
     assert res.dividends[0]["tax"] == 0.13
     assert not any("tax row" in n for n in res.notes)
+
+
+def test_freedom_kzt_and_usd_end_to_end(conn):
+    """Regional regression: a Freedom CSV with KZT and USD fills gives separate per-currency reports."""
+    from trading_tracker import report
+    text = (
+        "Дата сделки;Дата расчетов;ID сделки;ID приказа;Тикер;Операция;Кол-во;Цена;Валюта;Сумма;Комиссия;Валюта комиссии\n"
+        "03.02.2025 11:00:00;05.02.2025;5510001;9920001;KCEL;Покупка;100;2 000,00;KZT;200 000,00;300,00;KZT\n"
+        "03.02.2025 17:31:08;04.02.2025;5510002;9920002;AAPL.US;Покупка;10;200,00;USD;2 000,00;1,00;USD\n"
+        "10.03.2025 11:30:00;12.03.2025;5510003;9920003;KCEL;Продажа;100;2 150,00;KZT;215 000,00;300,00;KZT\n"
+        "14.03.2025 16:40:12;17.03.2025;5510004;9920004;AAPL.US;Продажа;10;190,00;USD;1 900,00;1,00;USD\n"
+    )
+    res = importers.import_file(conn, text=text, preset="freedom")
+    assert len(res.imported) == 4
+    rep = report.build_report(conn)["by_currency"]
+    assert set(rep) == {"KZT", "USD"}
+    assert rep["KZT"]["summary"]["gross_pnl"] == 15000
+    assert rep["KZT"]["summary"]["net_pnl"] == 14400
+    assert rep["USD"]["summary"]["net_pnl"] == -102
