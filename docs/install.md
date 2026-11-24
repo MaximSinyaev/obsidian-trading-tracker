@@ -76,13 +76,13 @@ for trade ideas, `skills/trading-idea-analyst/`) into its skills folder. Otherwi
 ## The CLI on its own
 
 ```bash
-uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.1"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.3.0"
 # or
-pipx install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.1"
+pipx install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.3.0"
 trade --version
 ```
 
-Pin a release by adding `@v1.1.1` after the URL. Drop `[yahoo]` if you do not
+Pin a release by adding `@v1.3.0` after the URL. Drop `[yahoo]` if you do not
 want optional Yahoo Finance quotes; without it the CLI makes no network calls.
 
 ## Where your data lives

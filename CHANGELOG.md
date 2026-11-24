@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-24
+
+Install pins move to v1.3.0; the `trade` CLI itself is unchanged since 1.1.1.
+
 ### Changed
 - trading-idea-analyst, report: "What I would watch" may add up to two loose threads (scan facts
   that fit no thesis, each with one question for the user), so the user's own view has a place
