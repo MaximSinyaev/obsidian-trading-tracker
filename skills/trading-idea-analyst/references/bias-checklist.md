@@ -21,4 +21,5 @@ its confidence at 2. Never pad a thesis with weaker points to pass a check.
 7. **Narrative fit vs. data?** Would you hold the same thesis if the most
    memorable quote behind it turned out to be wrong?
 8. **Previous ideas.** Check the scorecard (`idea-log.md` or `journal-handoff.md`):
-   are you repeating an idea type that has recently lost? Say so.
+   are you repeating an idea type with a negative median paper R over about 10
+   closed ideas? Say so. Fewer closed ideas are no signal yet.

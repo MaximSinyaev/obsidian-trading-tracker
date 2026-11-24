@@ -107,11 +107,12 @@ claim never mixes them:
      use `trade price set` for a past price: it replaces the live mark of an
      open position. If no price can be found, count it as `expired, unscored`.
    - `open`: time stop not reached yet.
-3. For scored ideas: move in the idea's direction from `ref_price` (%), and
-   whether stop or T1 was hit first if prices along the way are known.
+3. For scored ideas: paper R and hit rate as defined in `idea-log.md`
+   (scoring step 3), with `ref`, `stop` and `close` next to each R.
 4. Show the denominators: total ideas, scored, expired-unscored, open.
-   Hit rate is over **all** ideas past their time stop, with unscored ones
-   shown next to it, never silently left out.
+   Hit rate and median R are over scored ideas (closed, or expired with a
+   price); expired-unscored and open ideas are shown next to them, never
+   silently left out.
 5. Break down by type tag (`ai-macro`, `ai-news`, `ai-technical`,
    `ai-event`), horizon (from the `JSON:` line) and confidence.
 
@@ -126,8 +127,9 @@ claim never mixes them:
    a gap points at execution (entry, size, early exit, ignored stop).
 
 ### C. Feed it back
-If a type tag keeps losing on the paper score, lower confidence for that type
-in the next scan (bias checklist item 8).
+Once a type tag has about 10 closed ideas and a negative median paper R, lower
+confidence for that type in the next scan (bias checklist item 8). With fewer,
+report it but change nothing.
 
 ## Planned improvement
 

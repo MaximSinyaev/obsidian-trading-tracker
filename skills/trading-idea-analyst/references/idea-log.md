@@ -51,13 +51,18 @@ Same principles as the journal scorecard; nothing is dropped.
    passed, no `CLOSED`: look up the price at the time stop, append the missing
    `CLOSED ... expired` entry; if no price can be found, count it as
    `expired, unscored`), or `open`.
-3. **Idea quality (paper):** move in the idea's direction from `ref_price` to
-   the close price, and whether stop or T1 came first if known. Show
+3. **Idea quality (paper):** paper R = move in the idea's direction from
+   `ref_price` to the close ÷ |`ref_price` − `stop`|, or −1 if the stop is
+   known to have been hit first; show `ref`, `stop` and `close` next to each R.
+   Hit rate = share of scored ideas (closed, or expired with a price) with
+   positive paper R. Report the median R
+   next to it: an idea type can win rarely and still pay. Show
    denominators: total, scored, expired-unscored, open. Break down by type
    tag, horizon (from the `JSON:` line) and confidence.
 4. **Execution:** the log only knows what the user reported in `TAKEN`
    entries. Show the take rate (taken / all ideas). Do not compute the user's
    P&L; quote it only if they give it. For exact P&L per idea, the Trading
    Journal skill records the trades themselves.
-5. Feed back: if a type tag keeps losing on paper, lower confidence for that
-   type next time (bias checklist item 8).
+5. Feed back: once a type tag has about 10 closed ideas and a negative median
+   paper R, lower confidence for that type next time (bias checklist item 8).
+   With fewer, report it but change nothing.

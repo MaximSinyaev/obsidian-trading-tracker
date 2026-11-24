@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- trading-idea-analyst, scorecard: ideas are scored in paper R (move from the reference price
+  ÷ distance to the stop, shown with its inputs), hit rate is defined, and confidence for an
+  idea type is lowered only after about 10 closed ideas with a negative median R, so a few
+  early losses no longer push the analyst toward consensus ideas.
 - trading-idea-analyst, bias check: a thesis that rests on one signal or on recent news is kept,
   labelled and capped at confidence 2 instead of being sent back (which made the model pad it
   with weaker confirming points). Missing counter-evidence and portfolio steering still send it
