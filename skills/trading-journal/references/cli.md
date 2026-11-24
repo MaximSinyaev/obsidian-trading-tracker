@@ -97,5 +97,5 @@ entry_notes, exit_notes), income[], journal[], warnings[], method}`
 |---|---|
 | `import FILE\|- [--preset generic\|ibkr\|okx\|freedom\|tinvest --map field=Column --dry-run --ccy --source --strategy --date-format FMT]` | `{imported_count, duplicate_count, skipped_count, dividend_count, columns, imported[], duplicates[], skipped[{row, reason}], dividends[], events[], notes[], reconciliation (okx only)}` |
 | `sync export [--vault PATH]` | `{files, vault}` |
-| `db path` / `db init` / `db validate` / `db rebuild` | |
+| `db path` / `db init` / `db validate` / `db rebuild` | `db path`: `{path, exists, timezone}` |
 | `fx rate USD KZT`, `fx convert 100 USD KZT`, `fx matrix` (Yahoo) | human output |

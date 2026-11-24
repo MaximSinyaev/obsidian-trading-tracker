@@ -31,7 +31,12 @@ fix the input and retry; do not guess the result.
 
 First use: run `trade --json db path` to see which database is used
 (default `~/.trading-journal/trades.db`, override with `TRADE_DB=/path/x.db`
-or `trade --db /path/x.db`). If the CLI is missing, install it once:
+or `trade --db /path/x.db`). Its `timezone` field is the zone broker times are
+stored in. If it says `machine local` and you may not be on the user's own computer
+(a cloud container is usually UTC), ask the user for their timezone and set
+`TRADE_TZ=Area/City` (or `timezone` under `[defaults]` in `~/.traderc.toml`);
+otherwise the same fill lands on a different date than on their laptop.
+If the CLI is missing, install it once:
 
 ```bash
 uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
