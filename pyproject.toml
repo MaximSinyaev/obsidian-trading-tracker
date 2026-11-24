@@ -1,5 +1,5 @@
 [project]
-name = "obsidian-trading-tracker"
+name = "agent-trading-journal"
 version = "1.0.0"
 description = "Trading journal for AI agents: deterministic P&L in local SQLite, imports, interactive dashboards, Obsidian export"
 readme = "README.md"
@@ -18,7 +18,7 @@ keywords = ["trading", "journal", "pnl", "obsidian", "claude", "agent-skill", "p
 yahoo = ["yfinance>=1.2.0"]
 
 [project.urls]
-Homepage = "https://github.com/MaximSinyaev/obsidian-trading-tracker"
+Homepage = "https://github.com/MaximSinyaev/agent-trading-journal"
 
 [project.scripts]
 trade = "trading_tracker.cli:run"

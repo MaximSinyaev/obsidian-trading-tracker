@@ -10,7 +10,7 @@ Providers:
   fetched a quote with its own market-data tool and ran
   ``trade price set AAPL 191.20 --source agensi``.
 * ``yahoo`` — Yahoo Finance through ``yfinance`` (optional extra:
-  ``pip install 'obsidian-trading-tracker[yahoo]'``). Fetched quotes are cached.
+  ``pip install 'agent-trading-journal[yahoo]'``). Fetched quotes are cached.
 * ``none`` — do not mark to market.
 """
 
@@ -40,7 +40,7 @@ def yahoo_available() -> bool:
 def fetch_yahoo(tickers: list[str]) -> dict[str, float | None]:
     if not yahoo_available():
         raise ProviderUnavailable(
-            "Yahoo provider needs yfinance: pip install 'obsidian-trading-tracker[yahoo]' "
+            "Yahoo provider needs yfinance: pip install 'agent-trading-journal[yahoo]' "
             "(or set prices yourself with `trade price set TICKER PRICE`)"
         )
     from trading_tracker.analytics import fetch_live_prices

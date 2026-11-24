@@ -6,7 +6,7 @@ if command -v trade >/dev/null 2>&1; then
   exec trade "$@"
 fi
 if command -v uvx >/dev/null 2>&1; then
-  exec uvx --quiet --from "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0" trade "$@"
+  exec uvx --quiet --from "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0" trade "$@"
 fi
-echo '{"ok": false, "error": "trade CLI not found. Install uv (https://docs.astral.sh/uv/) or run: pipx install \"obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0\""}'
+echo '{"ok": false, "error": "trade CLI not found. Install uv (https://docs.astral.sh/uv/) or run: pipx install \"agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0\""}'
 exit 127
