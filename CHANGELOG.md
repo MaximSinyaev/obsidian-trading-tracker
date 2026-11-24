@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-24
+
+### Changed
+- **trading-idea-analyst works standalone.** It no longer needs the `trade` CLI: without it,
+  idea cards stay in chat and, if the user agrees, go to an append-only markdown idea log
+  (`trading-ideas.md`, configurable via `[storage].ideas_file`) with the same `JSON:` line and
+  its own scorecard (`references/idea-log.md`). When `trade` is found, ideas and taken trades
+  are recorded in the journal exactly as before (`references/journal-handoff.md`, now marked
+  optional). The CLI itself is unchanged; install pins stay at v1.1.1.
+
 ## [1.1.1] - 2026-11-24
 
 ### Fixed

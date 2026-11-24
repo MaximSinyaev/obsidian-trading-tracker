@@ -9,7 +9,7 @@
       "name": "trading-journal",
       "source": "./",
       "description": "Exact trade accounting (deterministic P&L in local SQLite), broker imports, interactive dashboards, Obsidian export.",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "category": "finance"
     }
   ]
