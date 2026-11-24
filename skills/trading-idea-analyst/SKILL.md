@@ -1,6 +1,6 @@
 ---
 name: trading-idea-analyst
-description: Structured research process for generating and stress-testing trading ideas from the full macro picture instead of the latest headline. Use when the user asks for trade ideas, a market outlook, "what should I look at", a thesis check on a ticker or theme, or a review of an open position's thesis. Produces tagged ideas with thesis, stop, exit conditions and event risk, and hands them to the trading journal (`trade` CLI) so AI ideas can be scored later. Research aid, not financial advice.
+description: Structured research process for generating and stress-testing trading ideas from the full macro picture instead of the latest headline. Use when the user asks for trade ideas, a market outlook, "what should I look at", a thesis check on a ticker or theme, or a review of an open position's thesis. Produces idea cards with thesis, stop, exit conditions and event risk, and keeps an idea log so ideas can be scored later. Works on its own with web search; optionally records ideas in the Trading Journal skill. Research aid, not financial advice.
 metadata: {"openclaw":{"emoji":"🔭","homepage":"https://github.com/MaximSinyaev/agent-trading-journal"}}
 ---
 
@@ -8,8 +8,11 @@ metadata: {"openclaw":{"emoji":"🔭","homepage":"https://github.com/MaximSinyae
 
 A research process, not a signal service. Its job is to make idea generation
 **disciplined and auditable**: every idea starts from a broad macro scan, carries
-an explicit thesis, an invalidation point and a stop, and is written to the
-journal so its outcome can be measured later.
+an explicit thesis, an invalidation point and a stop, and is logged so its
+outcome can be measured later.
+
+**Works standalone.** All it needs is web search (or any market data tool the
+agent has). Nothing has to be installed.
 
 The main failure it protects against is **recency / headline bias**: an assistant
 reads the loudest recent story, searches for tickers that fit it, and returns
@@ -20,6 +23,25 @@ confirmation dressed up as research.
 > specific person, never promise returns, never size a position for the user
 > beyond applying the user's own stated rules.
 
+## Storage: standalone or with the journal
+
+Check once per session whether the Trading Journal CLI is available
+(`command -v trade`, or `trade --version`). Then use one of two modes and say
+which one you are in:
+
+| | **Standalone** (default) | **With Trading Journal** (`trade` found) |
+|---|---|---|
+| Idea cards | shown in chat | shown in chat |
+| Idea log | appended to a markdown file, `trading-ideas.md` in the working folder (or `[storage].ideas_file` in `sources.toml`), **only after the user agrees the first time** | `trade --json journal add ... --kind plan` per `references/journal-handoff.md` |
+| User's positions | asked from the user, or pasted from a broker export | `trade --json positions` |
+| Taken trades, P&L | the user's broker is the source of truth; never compute their P&L | recorded with `trade add`, read from `trade --json report` |
+| Scorecard | from the idea log (`references/idea-log.md`) | from the journal (`references/journal-handoff.md`) |
+
+Both modes use the same idea card and the same `JSON:` line, so a log started
+standalone can later be imported into the journal. If the user asks how to
+score ideas against real trades over time, mention once that the Trading
+Journal skill does that; never block on it.
+
 ## When to use which mode
 
 | User asks | Mode | Steps |
@@ -28,7 +50,7 @@ confirmation dressed up as research.
 | "What do you think about X / theme Y?" | **Thesis check** | 1 (short), 3 → 6 for that one idea |
 | "Should I keep holding X?" | **Position review** | Stop question first, then `references/position-review.md` |
 | "Check my portfolio", "where should this month's contribution go?" (long-term / DCA investor) | **Portfolio review** | `references/position-review.md` → Long-term portfolio |
-| "How did your ideas do?" | **Scorecard** | `references/journal-handoff.md` → Scoring: paper idea quality and real execution, reported separately, every idea counted |
+| "How did your ideas do?" | **Scorecard** | `references/idea-log.md` (standalone) or `references/journal-handoff.md` (journal) → Scoring: paper idea quality and real execution, reported separately, every idea counted |
 
 ## The pipeline (full scan)
 
@@ -38,7 +60,7 @@ confirmation dressed up as research.
 3. IDEAS           instruments derived from theses (never from headlines)
 4. DEEP RESEARCH   one isolated sub-agent per thesis, in parallel
 5. SYNTHESIS       concept + execution variants + risks + stop + exit triggers
-6. HANDOFF         record each idea in the journal with tags and an idea id
+6. LOG             record each idea (idea log or journal) with tags and an idea id
 ```
 
 ### 1. Macro scan (no tickers yet)
@@ -54,10 +76,11 @@ Rules:
 - Do not open with the top headline. If one story dominates, cap it at one line
   in the scan and keep going through the checklist.
 - Note the data date for every number. Stale data must be labelled stale.
-- Read the user's open positions (`trade --json positions`) and recent journal
-  (`trade --json journal list --limit 20`) if the CLI is available, so ideas
-  account for existing exposure. Do this after the scan, not before, so the
-  portfolio does not steer what you look for.
+- Then take the user's open positions into account: from the journal
+  (`trade --json positions`, `trade --json journal list --limit 20`) if it is
+  available, otherwise ask the user (or skip if they don't want to share).
+  Do this after the scan, not before, so the portfolio does not steer what you
+  look for.
 
 ### 2. Thesis extraction
 
@@ -106,17 +129,20 @@ have all of these fields, or it is not an idea yet:
 - risks and what would make you wrong
 - confidence 1–5, with one line on why
 
-### 6. Journal handoff
+### 6. Log the ideas
 
-Each plan entry ends with a `JSON:` line (ticker, direction, reference price
-and time, stop, targets, time stop) so ideas can be scored without parsing
-prose.
+Every idea, taken or not, is recorded with a `JSON:` line (ticker, direction,
+reference price and time, stop, targets, time stop) so it can be scored
+without parsing prose. Ideas that are never recorded cannot be scored, and
+unscored ideas let the assistant remember only its wins.
 
-Record every idea, taken or not, following `references/journal-handoff.md`:
-a `plan` journal entry for each idea, and, when the user reports a fill, the
-trade itself with `--sl`, targets, `--strategy`, `--setup`, the thesis in
-`--notes` and the same tags. Ideas that are never recorded cannot be scored,
-and unscored ideas let the assistant remember only its wins.
+- **Standalone:** append the idea cards to the idea log as described in
+  `references/idea-log.md`. Ask before creating the file the first time; if
+  the user declines, the cards stay in chat and say so.
+- **With the journal:** a `plan` journal entry per idea, and, when the user
+  reports a fill, the trade itself with `--sl`, targets, `--strategy`,
+  `--setup`, the thesis in `--notes` and the same tags, as in
+  `references/journal-handoff.md`.
 
 ## Risk rules (always applied)
 
@@ -143,33 +169,35 @@ These are process rules. The user can override the numbers in `sources.toml`
    plan for each outcome.
 6. **Concentration.** Flag if an idea pushes any ticker above the user's max
    per-ticker share (default 30%) or adds a third correlated position. The
-   journal does not sum across currencies, so compute the share either within
-   one currency (each position in `trade --json positions` carries its
-   `currency`; `trade --json report` groups by `by_currency`) or by
-   converting every currency to `[user].base_currency` with
-   `trade --json fx rate <CCY> <BASE>` and stating the rates and their time.
+   With several currencies, compute the share either within one currency or
+   by converting every position to `[user].base_currency` at a stated rate and
+   time (with the journal: positions carry `currency`, `trade --json report`
+   groups `by_currency`, and `trade --json fx rate <CCY> <BASE>` gives rates).
    Say which method you used.
 7. **Broken thesis = exit.** When an exit trigger fires, the default view is to
-   exit, not to wait for a bounce. Record it as a lesson in the journal.
-8. **P&L from the journal only.** Never compute the user's P&L by hand; read
-   it from `trade --json history` / `trade --json report`.
+   exit, not to wait for a bounce. Record it as a lesson in the idea log or
+   journal.
+8. **Never compute the user's P&L by hand.** Read it from the journal
+   (`trade --json report`) if present, otherwise use the figures the user's
+   broker shows. Paper results of ideas (percent move from the reference
+   price) are fine and are labelled as paper.
 9. **Stop on the right side.** A long's stop is below the reference price, a
    short's above it; targets on the opposite side. Check this before writing
-   any idea or trade. `trade add` returns `warnings` for a missing or
-   wrong-side stop: read them and fix the record if one appears.
+   any idea or trade. With the journal, `trade add` also returns `warnings`
+   for a missing or wrong-side stop: read them and fix the record.
 10. **Options** (only if allowed in `instruments_allowed`): state whether the
    stop is on the premium or on the underlying, and the maximum loss (premium
    paid for long options; for short puts strike × multiplier − premium, for
    short calls unlimited unless covered or spread). Expiry is the hard time
    stop. Flag assignment / early-exercise risk around ex-dividend dates and
-   expiry, and prefer defined-risk structures. Record with
+   expiry, and prefer defined-risk structures. In the journal, record with
    `--instrument option --multiplier 100` (or the contract's multiplier).
 
 ## Tags
 
 | Tag | Values | Meaning |
 |---|---|---|
-| origin | `ai-idea` | Generated by this skill (required, the journal splits AI vs manual on it) |
+| origin | `ai-idea` | Generated by this skill (required; the scorecard and the journal split AI vs manual on it) |
 | direction | `ai-bullish`, `ai-bearish`, `ai-neutral` | Expected direction |
 | type | `ai-macro`, `ai-news`, `ai-technical`, `ai-event` | What the idea rests on |
 | strategy | `event-driven`, `leveraged`, `hedge`, `structural`, `tactical` | Extra risk class |
@@ -183,10 +211,10 @@ digest). Times, timezone and sources live in `sources.toml`, never in this file.
 The full pipeline with parallel sub-agents is expensive, so scheduled runs
 default to **delta mode** (`[schedule].mode = "delta"`): one agent, no
 sub-agents, scan only what changed since the last scan (read the previous
-scan from the journal), check open ideas' exit triggers and time stops, and
+scan from the idea log or journal), check open ideas' exit triggers and time stops, and
 flag whether any thesis now needs a full run. The full pipeline runs only when
-the user asks for it, or when `mode = "full"`. Scheduled runs write nothing to
-the journal except `CLOSED` entries for ideas whose time stop passed, unless
+the user asks for it, or when `mode = "full"`. Scheduled runs record nothing
+except `CLOSED` entries for ideas whose time stop passed, unless
 `[schedule].auto_record = true`.
 
 ## Reference files
@@ -196,12 +224,8 @@ the journal except `CLOSED` entries for ideas whose time stop passed, unless
 - `references/research-brief.md`: sub-agent brief template
 - `references/output-template.md`: idea card and report layout
 - `references/position-review.md`: reviewing an open position
-- `references/journal-handoff.md`: how ideas are recorded and scored
+- `references/idea-log.md`: standalone idea log file and scoring
+- `references/journal-handoff.md`: recording and scoring with the Trading Journal (optional)
 - `references/sources.example.toml`: configurable sources, timezone, risk numbers
 - `references/disclaimer.md`: text to show with every set of ideas
 
-## Follow-up (not built yet)
-
-A first-class `trade idea add/list/close` command would let untaken ideas be
-scored against fetched prices without parsing journal text. Until then,
-`plan` and `review` journal entries are the contract.

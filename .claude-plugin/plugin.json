@@ -1,6 +1,6 @@
 {
   "name": "trading-journal",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Trading journal for AI agents: exact, auditable P&L from a local SQLite ledger (average cost, fees, shorts, options, splits, dividends, multi-currency), broker CSV import, interactive HTML dashboards and Obsidian notes. The agent never does trade math itself.",
   "author": { "name": "Maxim Sinyaev", "url": "https://github.com/MaximSinyaev" },
   "homepage": "https://github.com/MaximSinyaev/agent-trading-journal",

@@ -20,8 +20,9 @@ If the user asks for trade ideas, a market outlook, a thesis check or a review
 of whether to hold a position, follow
 [`skills/trading-idea-analyst/SKILL.md`](skills/trading-idea-analyst/SKILL.md):
 macro scan before any ticker, theses with counter-evidence, a stop for every
-idea, and every idea recorded in the journal (`--kind plan`, `ai-idea` tags,
-a `JSON:` line) so its outcome can be scored later. It is a research process,
+idea, and every idea logged with `ai-idea` tags and a `JSON:` line so its
+outcome can be scored later. It works without the `trade` CLI (markdown idea
+log); when the CLI is present, ideas go to the journal (`--kind plan`). It is a research process,
 not financial advice; show its disclaimer with every set of ideas.
 
 ## Working on this codebase

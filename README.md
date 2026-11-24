@@ -26,6 +26,9 @@ model never has to do it.
   drawdown, monthly P&L, calendar heatmap, breakdowns, R distribution, positions
   with stops, filterable trade table.
 - **Obsidian** — daily notes and one note per ticker with Dataview-friendly frontmatter.
+- **Idea analyst skill** — a second, standalone skill (`trading-idea-analyst`) for
+  macro-first trade ideas with a stop, exit conditions and an idea log. It needs
+  no CLI; with the journal installed, its ideas are scored against your real trades.
 - **Private** — no account, no SaaS: the database never leaves your machine; your agent
   only sees what it asks the CLI for.
 
