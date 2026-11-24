@@ -177,7 +177,8 @@ def db_init():
 def db_path_cmd():
     """Print where the database lives."""
     cfg = _cfg()
-    _emit({"path": str(cfg.db_path), "exists": cfg.db_path.exists()},
+    _emit({"path": str(cfg.db_path), "exists": cfg.db_path.exists(),
+           "timezone": getattr(db.LOCAL_TZ, "key", None) or "machine local"},
           lambda: console.print(str(cfg.db_path)))
 
 
