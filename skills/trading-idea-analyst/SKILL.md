@@ -1,6 +1,7 @@
 ---
 name: trading-idea-analyst
 description: Structured research process for generating and stress-testing trading ideas from the full macro picture instead of the latest headline. Use when the user asks for trade ideas, a market outlook, "what should I look at", a thesis check on a ticker or theme, or a review of an open position's thesis. Produces tagged ideas with thesis, stop, exit conditions and event risk, and hands them to the trading journal (`trade` CLI) so AI ideas can be scored later. Research aid, not financial advice.
+metadata: {"openclaw":{"emoji":"🔭","homepage":"https://github.com/MaximSinyaev/agent-trading-journal"}}
 ---
 
 # Trading Idea Analyst
