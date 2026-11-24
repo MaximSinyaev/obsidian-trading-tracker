@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- trading-idea-analyst, bias check: a thesis that rests on one signal or on recent news is kept,
+  labelled and capped at confidence 2 instead of being sent back (which made the model pad it
+  with weaker confirming points). Missing counter-evidence and portfolio steering still send it
+  back. The report shows only the checks that flagged something.
 - trading-idea-analyst, risk rule 3: the event size factor and the 3-day event time stop apply
   only when a thesis rests on a single event or decision. Geopolitical and commodity ideas
   still get the "what if a decision-maker says the opposite tomorrow?" check, but a macro

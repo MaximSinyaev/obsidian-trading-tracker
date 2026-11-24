@@ -7,7 +7,9 @@
    10 to 20 most relevant lines) and the 2-week calendar.
 3. **Theses**: 2 to 4, each with claim, evidence, counter-evidence, horizon,
    kill condition.
-4. **Bias check**: the answers from `bias-checklist.md`.
+4. **Bias check**: only the `bias-checklist.md` items that flagged something and
+   what was done about each, or "no flags". Always show the "priced in?"
+   answer for each thesis.
 5. **Idea cards**: one per idea (below), core ideas first, hedges last.
 6. **Portfolio fit**: overlap with open positions, correlation, concentration
    flags.
