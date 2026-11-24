@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- trading-idea-analyst, journal handoff: scoring an expired idea no longer tells the agent to
+  run `trade price set --as-of <time stop>`, which replaced the live mark of an open position
+  (also from unattended scheduled runs). The close price goes into the `CLOSED` entry instead.
+- The plan-entry example now contains the `JSON:` line the scorecard parses; the `trade add`
+  example passes `--ccy` and `--date`, so non-USD ideas are not booked as USD.
+- Delta mode no longer reads a "previous scan" that was never stored: the window is the time
+  since the previous scheduled run (or the last 7 days).
+- Option maximum loss is stated per contract (`premium × multiplier`, short puts
+  `(strike − premium) × multiplier`); a broken sentence in risk rule 6.
+- One outcome list in both modes (`target hit | stop hit | invalidated | expired`), with a
+  `JSON:` line on `CLOSED` entries; concrete idea ids in the examples.
+- Thesis checks keep step 2 (counter-evidence, kill condition), with bias answers as notes.
+- The Trading Journal is also detected through the journal skill's `scripts/trade` wrapper.
+- `sources.toml` lives outside the skill folder (`$TRADING_IDEA_SOURCES` or
+  `~/.config/trading-idea-analyst/`); the FRED example needs no API key.
+- Install docs cover `trading-idea-analyst` for Codex, Cursor and other agents.
+
 ## [1.2.0] - 2026-11-24
 
 ### Changed

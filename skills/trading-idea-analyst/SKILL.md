@@ -25,8 +25,9 @@ confirmation dressed up as research.
 
 ## Storage: standalone or with the journal
 
-Check once per session whether the Trading Journal CLI is available
-(`command -v trade`, or `trade --version`). Then use one of two modes and say
+Check once per session whether the Trading Journal is available: `trade` on
+PATH (`command -v trade`), or the Trading Journal skill installed (then run the
+CLI through its `scripts/trade` wrapper). Then use one of two modes and say
 which one you are in:
 
 | | **Standalone** (default) | **With Trading Journal** (`trade` found) |
@@ -38,7 +39,7 @@ which one you are in:
 | Scorecard | from the idea log (`references/idea-log.md`) | from the journal (`references/journal-handoff.md`) |
 
 Both modes use the same idea card and the same `JSON:` line, so a log started
-standalone can later be imported into the journal. If the user asks how to
+standalone can later be re-recorded in the journal. If the user asks how to
 score ideas against real trades over time, mention once that the Trading
 Journal skill does that; never block on it.
 
@@ -47,7 +48,7 @@ Journal skill does that; never block on it.
 | User asks | Mode | Steps |
 |---|---|---|
 | "Give me ideas", "what's interesting this week", "market outlook" | **Full scan** | 1 → 6 |
-| "What do you think about X / theme Y?" | **Thesis check** | 1 (short), 3 → 6 for that one idea |
+| "What do you think about X / theme Y?" | **Thesis check** | 1 (short), 2 for the user's thesis, 3 → 6 for that one idea; bias answers are notes to the user, not a gate |
 | "Should I keep holding X?" | **Position review** | Stop question first, then `references/position-review.md` |
 | "Check my portfolio", "where should this month's contribution go?" (long-term / DCA investor) | **Portfolio review** | `references/position-review.md` → Long-term portfolio |
 | "How did your ideas do?" | **Scorecard** | `references/idea-log.md` (standalone) or `references/journal-handoff.md` (journal) → Scoring: paper idea quality and real execution, reported separately, every idea counted |
@@ -67,7 +68,9 @@ Journal skill does that; never block on it.
 
 Walk the **whole** checklist in `references/macro-checklist.md`, even the parts
 that seem quiet. Quiet areas are information too. Use the sources configured in
-`sources.toml` (see `references/sources.example.toml`); if none is configured,
+`sources.toml` (`$TRADING_IDEA_SOURCES`, else
+`~/.config/trading-idea-analyst/sources.toml`; never inside the skill folder,
+which updates replace; see `references/sources.example.toml`); if none is configured,
 use web search plus whatever market data tools are available, and say which
 sources you actually used.
 
@@ -168,7 +171,7 @@ These are process rules. The user can override the numbers in `sources.toml`
    horizon must be listed with date and time in the user's timezone, plus the
    plan for each outcome.
 6. **Concentration.** Flag if an idea pushes any ticker above the user's max
-   per-ticker share (default 30%) or adds a third correlated position. The
+   per-ticker share (default 30%) or adds a third correlated position.
    With several currencies, compute the share either within one currency or
    by converting every position to `[user].base_currency` at a stated rate and
    time (with the journal: positions carry `currency`, `trade --json report`
@@ -187,8 +190,8 @@ These are process rules. The user can override the numbers in `sources.toml`
    for a missing or wrong-side stop: read them and fix the record.
 10. **Options** (only if allowed in `instruments_allowed`): state whether the
    stop is on the premium or on the underlying, and the maximum loss (premium
-   paid for long options; for short puts strike × multiplier − premium, for
-   short calls unlimited unless covered or spread). Expiry is the hard time
+   × multiplier for long options; (strike − premium) × multiplier for short
+   puts; unlimited for short calls unless covered or spread). Expiry is the hard time
    stop. Flag assignment / early-exercise risk around ex-dividend dates and
    expiry, and prefer defined-risk structures. In the journal, record with
    `--instrument option --multiplier 100` (or the contract's multiplier).
@@ -210,8 +213,9 @@ digest). Times, timezone and sources live in `sources.toml`, never in this file.
 
 The full pipeline with parallel sub-agents is expensive, so scheduled runs
 default to **delta mode** (`[schedule].mode = "delta"`): one agent, no
-sub-agents, scan only what changed since the last scan (read the previous
-scan from the idea log or journal), check open ideas' exit triggers and time stops, and
+sub-agents, scan only what happened since the previous scheduled run (worked out
+from the `[schedule]` times; with none configured, the last 7 days), check open
+ideas' exit triggers and time stops in the idea log or journal, and
 flag whether any thesis now needs a full run. The full pipeline runs only when
 the user asks for it, or when `mode = "full"`. Scheduled runs record nothing
 except `CLOSED` entries for ideas whose time stop passed, unless
