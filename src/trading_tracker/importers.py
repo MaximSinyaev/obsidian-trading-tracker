@@ -438,6 +438,7 @@ def import_rows(
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset!r}; choose from {', '.join(PRESETS)}")
     cfg = PRESETS[preset]
+    explicit_source = bool(source)
     source = source or cfg.get("source") or "import"
     defaults = defaults or {}
     mapping = map_columns(headers, preset, overrides)
@@ -455,6 +456,10 @@ def import_rows(
     fee_skipped: dict[tuple[str, str], int] = {}
     fp_count: dict[str, int] = {}
     running_net: dict[str, float] = {}
+    # Same file imported earlier under another preset (generic, then --preset ibkr): match fills by
+    # content against trades from other sources. Counts are taken before this run inserts anything.
+    # An explicit --source means a separate account, where identical fills are real.
+    other_source: dict[tuple, list[tuple[int, str]]] = {}
 
     dc = cfg.get("decimal_comma")
 
@@ -649,6 +654,18 @@ def import_rows(
         if ext in seen_ids or db.find_by_external_id(conn, source, ext) is not None:
             result.duplicates.append({"row": i, "external_id": ext, "ticker": ticker})
             continue
+        if not explicit_source:
+            key = (ticker, side, float(record["shares"]), float(record["price"]), ts)
+            if key not in other_source:
+                other_source[key] = [(r["id"], r["source"]) for r in conn.execute(
+                    "SELECT id, source FROM trades WHERE ticker = ? AND action = ? AND shares = ? AND price = ? "
+                    "AND timestamp = ? AND COALESCE(source, '') != ? ORDER BY id",
+                    (ticker, side, record["shares"], record["price"], ts, source))]
+            if other_source[key]:
+                tid, src = other_source[key].pop(0)
+                result.duplicates.append({"row": i, "external_id": ext, "ticker": ticker,
+                                          "matches_trade_id": tid, "matches_source": src})
+                continue
         seen_ids.add(ext)
         if ticker not in running_net:
             pos = db.get_position(conn, ticker)
@@ -680,6 +697,11 @@ def import_rows(
                          source=source, external_id=ext, commit=False)
         result.dividends.append({k: (round(v, 2) if isinstance(v, float) else v) for k, v in entry.items()
                                  if k != "row"} | {"date": entry["date"][:10]})
+    cross = [d for d in result.duplicates if "matches_source" in d]
+    if cross:
+        srcs = ", ".join(sorted({d["matches_source"] or "manual" for d in cross}))
+        result.notes.append(f"{len(cross)} rows match trades already in the journal from another source ({srcs}) "
+                            "and were skipped as duplicates; pass --source NAME to import a separate account")
     for (fee_ccy, ccy), n in fee_skipped.items():
         result.notes.append(f"{n} row(s): commission charged in {fee_ccy} on {ccy} trades was not "
                             f"included (no silent FX conversion); it is noted on each trade")
