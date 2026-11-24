@@ -1,7 +1,7 @@
 ---
 name: trading-journal
 description: Keep an exact trading journal for the user - record buys/sells, import broker exports (IBKR, Trading 212, Binance, any CSV/XLSX/JSON), show open positions and realized/unrealized P&L, stats (win rate, profit factor, R, drawdown), post-trade reviews, dividends and splits, and render an interactive HTML dashboard or Obsidian notes. Use whenever the user mentions their trades, positions, portfolio P&L, trading journal or trading performance. All numbers come from a deterministic local ledger, never from the model.
-metadata: {"openclaw":{"emoji":"📒","homepage":"https://github.com/MaximSinyaev/agent-trading-journal","requires":{"anyBins":["trade","uvx"]},"install":[{"id":"uv","kind":"uv","label":"Install the trade CLI (uv)","package":"agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.0","bins":["trade"]}],"envVars":[{"name":"TRADE_DB","required":false,"description":"Path to the SQLite journal (default ~/.trading-journal/trades.db)"},{"name":"TRADE_CONFIG","required":false,"description":"Path to an optional .traderc.toml config"},{"name":"TRADE_TZ","required":false,"description":"IANA time zone that stored times use, e.g. Europe/Berlin (default: this machine's zone)"}]}}
+metadata: {"openclaw":{"emoji":"📒","homepage":"https://github.com/MaximSinyaev/agent-trading-journal","requires":{"anyBins":["trade","uvx"]},"install":[{"id":"uv","kind":"uv","label":"Install the trade CLI (uv)","package":"agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.1","bins":["trade"]}],"envVars":[{"name":"TRADE_DB","required":false,"description":"Path to the SQLite journal (default ~/.trading-journal/trades.db)"},{"name":"TRADE_CONFIG","required":false,"description":"Path to an optional .traderc.toml config"},{"name":"TRADE_TZ","required":false,"description":"IANA time zone that stored times use, e.g. Europe/Berlin (default: this machine's zone)"}]}}
 ---
 
 # Trading journal
@@ -40,7 +40,7 @@ otherwise the same fill lands on a different date than on their laptop.
 If the CLI is missing, install it once:
 
 ```bash
-uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.0"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.1.1"
 ```
 
 ## Workflows
