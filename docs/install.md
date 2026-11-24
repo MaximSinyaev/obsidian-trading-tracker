@@ -14,7 +14,7 @@ pipx, and Python 3.12+ (uv downloads it for you if missing).
 ## Claude Code
 
 ```text
-/plugin marketplace add MaximSinyaev/obsidian-trading-tracker
+/plugin marketplace add MaximSinyaev/agent-trading-journal
 /plugin install trading-journal@trading-journal
 ```
 
@@ -25,7 +25,7 @@ loaded: `/plugin` lists `trading-journal` as installed.
 From a terminal instead of the chat:
 
 ```bash
-claude plugin marketplace add MaximSinyaev/obsidian-trading-tracker
+claude plugin marketplace add MaximSinyaev/agent-trading-journal
 claude plugin install trading-journal@trading-journal
 ```
 
@@ -38,7 +38,7 @@ Codex reads skills from `.agents/skills/` in your project and from
 `~/.agents/skills/` for all projects. Copy the skill folder there:
 
 ```bash
-git clone --depth 1 https://github.com/MaximSinyaev/obsidian-trading-tracker /tmp/ttt
+git clone --depth 1 https://github.com/MaximSinyaev/agent-trading-journal /tmp/ttt
 mkdir -p ~/.agents/skills
 cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
 ```
@@ -54,7 +54,7 @@ and from `~/.cursor/skills/` or `~/.agents/skills/` for all projects. It also
 loads `~/.claude/skills/` and `~/.codex/skills/`, so one copy serves several agents:
 
 ```bash
-git clone --depth 1 https://github.com/MaximSinyaev/obsidian-trading-tracker /tmp/ttt
+git clone --depth 1 https://github.com/MaximSinyaev/agent-trading-journal /tmp/ttt
 mkdir -p ~/.agents/skills
 cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
 ```
@@ -73,9 +73,9 @@ skills folder. Otherwise install the CLI yourself and point the agent at
 ## The CLI on its own
 
 ```bash
-uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
 # or
-pipx install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+pipx install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
 trade --version
 ```
 
@@ -93,7 +93,7 @@ your whole journal.
 | Symptom | Fix |
 |---|---|
 | `trade CLI not found` | Install uv (`curl -LsSf https://astral.sh/uv/install.sh \| sh`) or run the `uv tool install` line above. |
-| `No such option: --json` | You have a pre-1.0 version. `uv tool upgrade obsidian-trading-tracker`. |
+| `No such option: --json` | You have a pre-1.0 version (package `obsidian-trading-tracker`). `uv tool uninstall obsidian-trading-tracker`, then run the install line above. Your database is kept. |
 | `trade: command not found` after install | Run `uv tool update-shell` and open a new terminal. |
 | The agent does arithmetic itself | Remind it: "use the trading-journal skill". Report it as a bug with the prompt. |
 | Import skipped rows | Run `trade import FILE --dry-run` and map columns with `--map ticker=... --map timestamp=...`. |

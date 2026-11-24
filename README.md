@@ -38,7 +38,7 @@ model never has to do it.
 ### As a Claude Code plugin
 
 ```text
-/plugin marketplace add MaximSinyaev/obsidian-trading-tracker
+/plugin marketplace add MaximSinyaev/agent-trading-journal
 /plugin install trading-journal@trading-journal
 ```
 
@@ -49,9 +49,9 @@ use if it is missing (via `uv`).
 
 ```bash
 # with uv (https://docs.astral.sh/uv/)
-uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
 # or pipx
-pipx install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+pipx install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
 
 trade --version
 ```
@@ -65,7 +65,7 @@ Both read skills from `~/.agents/skills/` (all projects) or `.agents/skills/`
 (one project), so one copy serves both:
 
 ```bash
-git clone --depth 1 https://github.com/MaximSinyaev/obsidian-trading-tracker /tmp/ttt
+git clone --depth 1 https://github.com/MaximSinyaev/agent-trading-journal /tmp/ttt
 mkdir -p ~/.agents/skills && cp -r /tmp/ttt/skills/trading-journal ~/.agents/skills/
 ```
 
@@ -174,6 +174,10 @@ Frontmatter fields (`pnl_usd`, `realized_pnl`, `status`, `strategy`, tags...) wo
 with Dataview. Anything you write below the `%% notes %%` line survives re-exports.
 
 ## Upgrading from 0.5.x
+
+The project was renamed from `obsidian-trading-tracker` to `agent-trading-journal`
+(old GitHub links redirect). Reinstall the CLI under the new name:
+`uv tool uninstall obsidian-trading-tracker`, then the install command above.
 
 The database migrates automatically on first run and your reviews are kept.
 Two behaviour changes:

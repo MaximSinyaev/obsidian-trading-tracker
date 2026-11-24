@@ -34,7 +34,7 @@ First use: run `trade --json db path` to see which database is used
 or `trade --db /path/x.db`). If the CLI is missing, install it once:
 
 ```bash
-uv tool install "obsidian-trading-tracker[yahoo] @ git+https://github.com/MaximSinyaev/obsidian-trading-tracker@v1.0.0"
+uv tool install "agent-trading-journal[yahoo] @ git+https://github.com/MaximSinyaev/agent-trading-journal@v1.0.0"
 ```
 
 ## Workflows

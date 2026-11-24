@@ -36,7 +36,7 @@ err_console = Console(stderr=True)
 
 def _version_callback(value: bool):
     if value:
-        print(f"trade {pkg_version('obsidian-trading-tracker')}")
+        print(f"trade {pkg_version('agent-trading-journal')}")
         raise typer.Exit()
 
 
@@ -1086,7 +1086,7 @@ def sync_export(
 
 def _require_yahoo() -> None:
     if not prices.yahoo_available():
-        _fail("FX rates need yfinance: pip install 'obsidian-trading-tracker[yahoo]'")
+        _fail("FX rates need yfinance: pip install 'agent-trading-journal[yahoo]'")
 
 DEFAULT_CURRENCIES = ["USD", "EUR", "RUB", "KZT"]
 

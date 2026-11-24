@@ -146,7 +146,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   const f = R.filters || {};
   const filt = [f.from && "from " + f.from, f.to && "to " + f.to, f.ticker, f.strategy].filter(Boolean).join(" · ");
   $("meta").textContent = `Generated ${R.generated_at.replace("T", " ")}` + (filt ? ` · ${filt}` : "");
-  $("footer").textContent = `Numbers computed by obsidian-trading-tracker (${R.method}). ${R.trade_count} fills in the database.`;
+  $("footer").textContent = `Numbers computed by agent-trading-journal (${R.method}). ${R.trade_count} fills in the database.`;
   $("warnings").innerHTML = (R.warnings || []).map((w) => `<div class="warn">${esc(w)}</div>`).join("");
 
   function seg(el, items, current, onPick) {
