@@ -6,7 +6,7 @@ path = "trades.db"
 
 [defaults]
 commission = 0.0
-timezone = "Asia/Almaty"
+timezone = ""  # IANA zone for stored times, e.g. "America/New_York"; empty = this machine's zone
 asset_type = "stock"
 source = "manual"
 

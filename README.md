@@ -150,6 +150,7 @@ path = "~/trading/trades.db"     # default: ~/.trading-journal/trades.db
 
 [defaults]
 commission = 0.0
+timezone = "Europe/London"       # zone fills are stored in; default: this machine's zone
 
 [obsidian]
 vault_path = "~/Notes"
@@ -159,7 +160,10 @@ trading_folder = "Trading"
 base_currency = "USD"
 ```
 
-Environment overrides: `TRADE_DB=/path/to/trades.db`, `TRADE_CONFIG=/path/to/config.toml`,
+Set `timezone` (or `TRADE_TZ`) when a laptop and a cloud agent write to the same
+database: broker times with an offset are converted to that zone, so both store the same date.
+
+Environment overrides: `TRADE_DB=/path/to/trades.db`, `TRADE_CONFIG=/path/to/config.toml`, `TRADE_TZ=Asia/Tokyo`,
 or `trade --db PATH ...`. An existing `./trades.db` in the current directory is
 still picked up when nothing is configured.
 

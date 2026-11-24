@@ -9,6 +9,7 @@ agent never has to parse tables or guess.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import webbrowser
 from importlib.metadata import version as pkg_version
@@ -74,6 +75,10 @@ def main(
 
 def _cfg():
     cfg = load_config()
+    try:
+        db.set_local_timezone(os.environ.get("TRADE_TZ") or cfg.defaults.timezone)
+    except ValueError as exc:
+        _fail(str(exc))
     if STATE.db_override:
         cfg.database.path = STATE.db_override
     return cfg

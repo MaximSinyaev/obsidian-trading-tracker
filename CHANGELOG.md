@@ -15,6 +15,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Funding events** (schema v6): `funding` joins `split` and `dividend`. The report adds a
   `funding` total, included in `net_pnl_with_income`, and the dashboard shows it in the income tile.
 
+### Fixed
+- Broker times with an offset were converted to the zone of whichever machine ran the CLI, so a
+  laptop and a cloud agent stored different dates in one database. They now use
+  `[defaults] timezone` or `TRADE_TZ` (an IANA name); empty still means this machine's zone.
+  The unused `Asia/Almaty` default is gone.
+
 ### Changed
 - The dashboard embeds only the fields it draws, so books with tens of thousands of fills
   stay small (about 3× smaller); chart axes use compact labels such as `−12.5k`.

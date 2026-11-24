@@ -12,9 +12,11 @@ B = "\ufeff"
 
 @pytest.fixture
 def conn(tmp_path):
+    db.set_local_timezone("UTC")
     c = db.init_db(tmp_path / "t.db")
     yield c
     c.close()
+    db.set_local_timezone(None)
 
 
 HEADER = ("id,Order id,Time,Trade Type,Symbol,Action,Amount,Trading Unit,Filled Price,PnL,Fee,Fee Unit,"
@@ -119,3 +121,36 @@ def test_migration_from_v5_keeps_events(tmp_path):
     with pytest.raises(ValueError):
         db.add_event(c, "AAA", "funding", currency="USD", timestamp="2024-01-04T00:00:00")
     c.close()
+
+
+def test_offset_times_use_the_configured_zone_not_the_machine(monkeypatch):
+    import time
+    ts = "2025-01-15T22:00:00Z"
+    try:
+        db.set_local_timezone("Asia/Tokyo")
+        stored = []
+        for machine in ("UTC", "America/New_York"):
+            monkeypatch.setenv("TZ", machine)
+            time.tzset()
+            stored.append(db.normalize_timestamp(ts))
+        assert stored == ["2025-01-16T07:00:00", "2025-01-16T07:00:00"]
+        with pytest.raises(ValueError):
+            db.set_local_timezone("Mars/Base")
+    finally:
+        db.set_local_timezone(None)
+        monkeypatch.delenv("TZ", raising=False)
+        time.tzset()
+
+
+def test_cli_reads_trade_tz(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    from trading_tracker.cli import app
+    monkeypatch.setenv("TRADE_TZ", "Asia/Tokyo")
+    try:
+        out = CliRunner().invoke(app, ["--json", "--db", str(tmp_path / "c.db"), "add", "AAA", "BUY", "1", "10",
+                                       "--date", "2025-01-15T22:00:00Z"])
+        assert out.exit_code == 0, out.output
+        c = db.get_connection(tmp_path / "c.db")
+        assert c.execute("SELECT timestamp FROM trades").fetchone()[0] == "2025-01-16T07:00:00"
+    finally:
+        db.set_local_timezone(None)
