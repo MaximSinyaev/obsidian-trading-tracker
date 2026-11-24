@@ -571,7 +571,7 @@ def history(
 @app.command("import")
 def import_cmd(
     file: Annotated[str, typer.Argument(help="CSV or JSON file, or '-' for stdin")],
-    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | tinvest | freedom")] = "generic",
+    preset: Annotated[str, typer.Option("--preset", "-p", help="generic | ibkr | okx | freedom | tinvest")] = "generic",
     mapping: Annotated[Optional[list[str]], typer.Option("--map", help="field=Column override, repeatable")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Parse and report, write nothing")] = False,
     currency: Annotated[Optional[str], typer.Option("--currency", "--ccy", help="Default currency")] = None,

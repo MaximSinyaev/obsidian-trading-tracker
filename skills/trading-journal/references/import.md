@@ -53,6 +53,16 @@ Override detection with `--map field=Column` (repeatable).
 - `--preset ibkr` — Interactive Brokers Flex Query (Trades plus CashTransactions and
   CorporateActions sections: dividends, withholding tax and splits become events) and
   Activity Statements. Uses `DateTime`, `Buy/Sell`, `TradeID`, `IBCommission`, `Multiplier`.
+- `--preset okx` — OKX "Trading History" (bill history) CSV of perpetual swaps, detected
+  automatically. Quantities are contracts; the contract value (`ctVal`, e.g. 0.1 ETH for
+  `ETH-USDT-SWAP`) becomes the trade's multiplier. The export does not include it, so it is
+  solved per instrument from the `PnL` column OKX prints on every closing fill (an explicit
+  `trade edit ID --multiplier` always wins). Times use the time zone in the file's first line.
+  Liquidations are tagged `liquidation` and their separate liquidation fee is added to the
+  fill's commission; funding payments become `funding` events; margin transfers are skipped.
+  The result has `reconciliation {closing_fills, match_okx_pnl, contract_values}`: how many
+  closes match OKX's own PnL. A close can disagree when the position was opened before the
+  export window or the account used hedge mode (long and short at once).
 - Optional regional presets: `--preset freedom` (Freedom Finance / Tradernet CSV or the
   JSON broker report, which is detected automatically and also brings dividends;
   `.US` suffixes are dropped) and `--preset tinvest` (T-Invest operations export).
@@ -62,7 +72,7 @@ Override detection with `--map field=Column` (repeatable).
 Each imported row gets `external_id` = the broker id, or a fingerprint of
 ticker, side, quantity, price and timestamp. A row whose `(source, external_id)`
 already exists is skipped, so re-importing overlapping exports is safe. The
-source defaults to the preset name (`ibkr`, `tinvest`) or `import`; pass
+source defaults to the preset name (`ibkr`, `okx`, `tinvest`) or `import`; pass
 `--source` to keep accounts apart.
 
 ## JSON (for agents pulling fills from an API)

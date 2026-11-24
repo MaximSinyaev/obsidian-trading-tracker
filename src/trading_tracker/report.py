@@ -85,7 +85,8 @@ def _summary(closed: list[dict[str, Any]], income: list[dict[str, Any]],
     holds_w = [c["hold_duration_days"] for c in closed if c["net_pnl"] > 0 and c.get("hold_duration_days") is not None]
     holds_l = [c["hold_duration_days"] for c in closed if c["net_pnl"] <= 0 and c.get("hold_duration_days") is not None]
     unreal = [p["unrealized_pnl"] for p in open_positions if p.get("unrealized_pnl") is not None]
-    dividends = sum(i["net"] for i in income)
+    dividends = sum(i["net"] for i in income if i.get("kind", "dividend") == "dividend")
+    funding = sum(i["net"] for i in income if i.get("kind") == "funding")
     return {
         "closed_trades": s["total_trades"],
         "wins": s["wins"],
@@ -95,7 +96,8 @@ def _summary(closed: list[dict[str, Any]], income: list[dict[str, Any]],
         "commissions": s["total_commission"],
         "net_pnl": s["total_pnl"],
         "dividends": _r(dividends),
-        "net_pnl_with_income": _r(s["total_pnl"] + dividends),
+        "funding": _r(funding),
+        "net_pnl_with_income": _r(s["total_pnl"] + dividends + funding),
         "avg_win": s["avg_win"],
         "avg_loss": s["avg_loss"],
         "best_trade": s["best_trade"],

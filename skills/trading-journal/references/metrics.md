@@ -42,6 +42,10 @@ from its running peak, per currency.
 **Dividends** are tracked as income (net of withholding tax) and are not part of
 trade P&L; `net_pnl_with_income` adds them.
 
+**Funding** on perpetual swaps (imported from OKX as `funding` events) is income too:
+signed as received (+) or paid (−), reported as `funding` next to trade P&L and
+included in `net_pnl_with_income`, never inside a trade's P&L.
+
 **Currencies** are never converted or mixed: each currency has its own summary.
 A ticker's P&L is in the currency of its fills.
 

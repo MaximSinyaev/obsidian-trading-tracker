@@ -324,7 +324,8 @@ def find_by_external_id(conn: sqlite3.Connection, source: str, external_id: str)
 def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: str | None = None,
               ratio: float | None = None, amount: float | None = None, tax: float = 0,
               currency: str | None = None, notes: str | None = None, source: str = "manual",
-              external_id: str | None = None, commit: bool = True, force: bool = False) -> int:
+              external_id: str | None = None, commit: bool = True, force: bool = False,
+              rebuild: bool = True) -> int:
     kind = kind.lower()
     if kind == "split":
         if ratio is None or ratio <= 0:
@@ -338,15 +339,19 @@ def add_event(conn: sqlite3.Connection, ticker: str, kind: str, *, timestamp: st
     elif kind == "dividend":
         if amount is None:
             raise ValueError("dividend needs an amount (total cash received, before tax)")
+    elif kind == "funding":
+        if amount is None:
+            raise ValueError("funding needs a signed amount (+ received, - paid)")
     else:
-        raise ValueError("kind must be 'split' or 'dividend'")
+        raise ValueError("kind must be 'split', 'dividend' or 'funding'")
     cur = conn.execute(
         "INSERT INTO events (ticker, kind, timestamp, ratio, amount, tax, currency, notes, source, external_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (ticker.upper(), kind, normalize_timestamp(timestamp), ratio, amount, tax or 0,
          normalize_currency(currency, None), notes, source, external_id),
     )
-    rebuild_closed_trades(conn, [ticker])
+    if rebuild:
+        rebuild_closed_trades(conn, [ticker])
     if commit:
         conn.commit()
     return cur.lastrowid  # type: ignore[return-value]

@@ -91,6 +91,7 @@ Import a broker export instead of typing:
 trade import trades.csv --dry-run        # see detected columns and skipped rows
 trade import trades.csv
 trade import flex.csv --preset ibkr      # Interactive Brokers Flex Query or Activity Statement
+trade import okx-bills.csv               # OKX perpetuals: contracts, liquidations, funding
 ```
 
 Sample files are in [`examples/`](examples/). Optional presets for regional brokers
